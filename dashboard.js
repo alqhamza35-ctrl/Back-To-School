@@ -12,6 +12,7 @@
     let currentConversation = null;
     let homework = [];
     let exams = [];
+    let classes = [];
     let dailySchedule = [];
     let calendarDate = new Date();
 
@@ -66,11 +67,14 @@
         conversations = JSON.parse(localStorage.getItem('bts_conversations_' + userId) || '[]');
         homework = JSON.parse(localStorage.getItem('bts_homework_' + userId) || '[]');
         exams = JSON.parse(localStorage.getItem('bts_exams_' + userId) || '[]');
+        classes = JSON.parse(localStorage.getItem('bts_classes_' + userId) || '[]');
         dailySchedule = JSON.parse(localStorage.getItem('bts_schedule_' + userId) || '[]');
         
         renderConversations();
         renderHomework();
         renderExams();
+        renderClasses();
+        updateSubjectsSummary();
         renderDailySchedule();
     }
 
@@ -80,6 +84,7 @@
         localStorage.setItem('bts_conversations_' + userId, JSON.stringify(conversations));
         localStorage.setItem('bts_homework_' + userId, JSON.stringify(homework));
         localStorage.setItem('bts_exams_' + userId, JSON.stringify(exams));
+        localStorage.setItem('bts_classes_' + userId, JSON.stringify(classes));
         localStorage.setItem('bts_schedule_' + userId, JSON.stringify(dailySchedule));
     }
 
@@ -142,6 +147,14 @@
             document.getElementById('examModal').classList.add('active');
         });
 
+        // Add Class
+        document.getElementById('addClassBtn').addEventListener('click', function() {
+            document.getElementById('classModal').classList.add('active');
+        });
+
+        // Class Form
+        document.getElementById('classForm').addEventListener('submit', addClass);
+
         // Homework Form
         document.getElementById('homeworkForm').addEventListener('submit', addHomework);
 
@@ -202,6 +215,7 @@
         // Update page title
         const titles = {
             dashboard: { title: 'لوحة التحكم', subtitle: 'مرحباً بك اليوم' },
+            classes: { title: 'الفصل الدراسي', subtitle: 'إدارة حصصك الدراسية' },
             homework: { title: 'الواجبات', subtitle: 'إدارة واجباتك المدرسية' },
             exams: { title: 'الامتحانات', subtitle: 'تتبع امتحاناتك القادمة' },
             schedule: { title: 'الجدول اليومي', subtitle: 'خطط يومك بذكاء' },
@@ -364,6 +378,21 @@
             return 'تم إنشاء جدول يومك بناءً على الوقت المحدد! يمكنك مشاهدته في قسم "الجدول اليومي" أو في الشريط الجانبي.';
         }
         
+        // Classes today
+        if (lowerMsg.includes('حصص') || lowerMsg.includes('حصة') || lowerMsg.includes('فصل') || lowerMsg.includes('مواد') || lowerMsg.includes('classes')) {
+            const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+            const today = new Date();
+            const todayDay = dayNames[today.getDay()];
+            const todayClasses = classes.filter(c => c.day === todayDay);
+            
+            if (todayClasses.length > 0) {
+                return `لديك ${todayClasses.length} حصص اليوم:<br>` + 
+                    todayClasses.map(c => `• ${c.name} - ${formatTime12(c.startTime)} إلى ${formatTime12(c.endTime)}${c.room ? ' (القاعة: ' + c.room + ')' : ''}`).join('<br>') +
+                    '<br>هل تريد إنشاء جدول يومي يشمل هذه الحصص؟';
+            }
+            return 'لا توجد حصص مسجلة لهذا اليوم. هل تريد إضافة حصص جديدة؟';
+        }
+        
         // Homework related
         if (lowerMsg.includes('واجب') || lowerMsg.includes('تمرين') || lowerMsg.includes(' assignment')) {
             const todayHw = homework.filter(h => {
@@ -428,6 +457,7 @@
         if (lowerMsg.includes('مساعدة') || lowerMsg.includes('ساعد') || lowerMsg.includes('help')) {
             return 'يمكنني مساعدتك في:<br>' +
                 '• إنشاء جدول يومي ذكي<br>' +
+                '• عرض حصص اليوم (اكتب "حصصي")<br>' +
                 '• تنظيم الواجبات والامتحانات<br>' +
                 '• اقتراح أوقات للدراسة والتمارين<br>' +
                 '• حساب أفضل أوقات النوم<br>' +
@@ -461,6 +491,14 @@
         const exercise = document.getElementById('exerciseTime').value;
         const shower = document.getElementById('showerTime').value;
         
+        // Get today's day name in English
+        const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        const today = new Date();
+        const todayDay = dayNames[today.getDay()];
+        
+        // Get classes for today
+        const todayClasses = classes.filter(c => c.day === todayDay).sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+        
         // Build schedule
         dailySchedule = [];
         
@@ -474,17 +512,48 @@
         // Breakfast
         dailySchedule.push({ time: breakfast, activity: 'وجبة الإفطار', icon: 'utensils', type: 'meal', desc: 'وجبة صحية لبداية يوم نشط' });
         
-        // Travel to school (30 min before school)
-        const schoolStartMinutes = timeToMinutes(schoolStart);
-        dailySchedule.push({ time: minutesToTime(schoolStartMinutes - 30), activity: 'الذهاب للمدرسة', icon: 'bus', type: 'other', desc: 'السفر إلى المدرسة' });
-        
-        // School
-        dailySchedule.push({ time: schoolStart, activity: 'بداية الدوام', icon: 'school', type: 'school', desc: 'بداية يوم دراسي' });
-        dailySchedule.push({ time: schoolEnd, activity: 'نهاية الدوام', icon: 'school', type: 'school', desc: 'انتهاء اليوم الدراسي' });
-        
-        // Return home
-        const schoolEndMinutes = timeToMinutes(schoolEnd);
-        dailySchedule.push({ time: minutesToTime(schoolEndMinutes + 30), activity: 'العودة للمنزل', icon: 'home', type: 'other', desc: 'العودة من المدرسة' });
+        if (todayClasses.length > 0) {
+            // Add classes to schedule
+            const firstClassStart = todayClasses[0].startTime;
+            const lastClassEnd = todayClasses[todayClasses.length - 1].endTime;
+            
+            // Travel to first class (30 min before)
+            const firstClassMinutes = timeToMinutes(firstClassStart);
+            dailySchedule.push({ time: minutesToTime(firstClassMinutes - 30), activity: 'الذهاب للمدرسة', icon: 'bus', type: 'other', desc: 'السفر إلى المدرسة' });
+            
+            // Add each class
+            todayClasses.forEach(cls => {
+                dailySchedule.push({ 
+                    time: cls.startTime, 
+                    activity: cls.name, 
+                    icon: 'book-open', 
+                    type: 'class', 
+                    desc: `${cls.teacher ? 'المعلم: ' + cls.teacher : ''}${cls.room ? ' | القاعة: ' + cls.room : ''}`,
+                    classId: cls.id,
+                    classColor: cls.color
+                });
+                dailySchedule.push({ 
+                    time: cls.endTime, 
+                    activity: `نهاية ${cls.name}`, 
+                    icon: 'book', 
+                    type: 'class', 
+                    desc: 'انتهاء الحصة',
+                    classColor: cls.color
+                });
+            });
+            
+            // Return home after last class
+            const lastClassMinutes = timeToMinutes(lastClassEnd);
+            dailySchedule.push({ time: minutesToTime(lastClassMinutes + 30), activity: 'العودة للمنزل', icon: 'home', type: 'other', desc: 'العودة من المدرسة' });
+        } else {
+            // No classes today - use general school time
+            const schoolStartMinutes = timeToMinutes(schoolStart);
+            dailySchedule.push({ time: minutesToTime(schoolStartMinutes - 30), activity: 'الذهاب للمدرسة', icon: 'bus', type: 'other', desc: 'السفر إلى المدرسة' });
+            dailySchedule.push({ time: schoolStart, activity: 'بداية الدوام', icon: 'school', type: 'school', desc: 'بداية يوم دراسي' });
+            dailySchedule.push({ time: schoolEnd, activity: 'نهاية الدوام', icon: 'school', type: 'school', desc: 'انتهاء اليوم الدراسي' });
+            const schoolEndMinutes = timeToMinutes(schoolEnd);
+            dailySchedule.push({ time: minutesToTime(schoolEndMinutes + 30), activity: 'العودة للمنزل', icon: 'home', type: 'other', desc: 'العودة من المدرسة' });
+        }
         
         // Lunch
         dailySchedule.push({ time: lunch, activity: 'وجبة الغداء', icon: 'utensils', type: 'meal', desc: 'استرخاء ووجبة غداء' });
@@ -492,14 +561,52 @@
         // Rest time after lunch
         dailySchedule.push({ time: minutesToTime(timeToMinutes(lunch) + 60), activity: 'وقت الراحة', icon: 'couch', type: 'other', desc: 'استرخاء بعد الغداء' });
         
-        // Study/Homework time
+        // Study/Homework time - based on subjects added
+        const todayDate = new Date().toISOString().split('T')[0];
+        const todaySubjects = classes.filter(c => c.date === todayDate);
+        const totalStudyMinutes = todaySubjects.reduce((sum, s) => sum + (s.duration || 45), 0);
+        
         const studyStart = minutesToTime(timeToMinutes(lunch) + 90);
-        dailySchedule.push({ time: studyStart, activity: 'المذاكرة والواجبات', icon: 'book', type: 'study', desc: 'وقت مخصص للدراسة وحل الواجبات' });
+        let currentStudyTime = timeToMinutes(studyStart);
+        
+        if (todaySubjects.length > 0) {
+            // Add study time for each subject
+            dailySchedule.push({ 
+                time: studyStart, 
+                activity: `المذاكرة (${todaySubjects.length} مواد - ${totalStudyMinutes} دقيقة)`, 
+                icon: 'book', 
+                type: 'study', 
+                desc: 'وقت مخصص لدراسة المواد المضافة' 
+            });
+            
+            // Add each subject as a study block
+            todaySubjects.forEach(subject => {
+                dailySchedule.push({ 
+                    time: minutesToTime(currentStudyTime), 
+                    activity: `مذاكرة: ${subject.name}`, 
+                    icon: 'book-open', 
+                    type: 'study', 
+                    desc: `${subject.duration} دقيقة - الأولوية: ${subject.priority === 'high' ? 'عالية' : subject.priority === 'medium' ? 'متوسطة' : 'منخفضة'}`,
+                    classColor: subject.color
+                });
+                currentStudyTime += subject.duration;
+            });
+        } else {
+            // Default study time if no subjects added
+            dailySchedule.push({ 
+                time: studyStart, 
+                activity: 'المذاكرة والواجبات', 
+                icon: 'book', 
+                type: 'study', 
+                desc: 'وقت مخصص للدراسة وحل الواجبات (أضف مواد اليوم لتحديد المدة)' 
+            });
+        }
         
         // Check for homework today
         const todayHw = homework.filter(h => !h.completed);
         if (todayHw.length > 0) {
-            dailySchedule.push({ time: minutesToTime(timeToMinutes(studyStart) + 15), activity: `olve ${todayHw.length} واجبات`, icon: 'tasks', type: 'study', desc: todayHw.map(h => h.title).join(', ') });
+            dailySchedule.push({ time: minutesToTime(currentStudyTime + 15), activity: `حل ${todayHw.length} واجبات`, icon: 'tasks', type: 'study', desc: todayHw.map(h => h.title).join(', ') });
+            currentStudyTime += 30;
         }
         
         // Exercise
@@ -538,9 +645,19 @@
         
         // Show in AI chat
         if (currentConversation) {
-            const scheduleText = 'تم إنشاء جدول يومك! الجدول يتضمن:<br>' + 
-                dailySchedule.slice(0, 8).map(s => `${formatTime12(s.time)} - ${s.activity}`).join('<br>') +
-                '<br>يمكنك مشاهدة التفاصيل الكاملة في صفحة "الجدول اليومي".';
+            let scheduleText = 'تم إنشاء جدول يومك! ';
+            
+            if (todayClasses.length > 0) {
+                scheduleText += `لديك ${todayClasses.length} حصص اليوم:<br>`;
+                scheduleText += todayClasses.map(c => `• ${c.name} (${formatTime12(c.startTime)} - ${formatTime12(c.endTime)})`).join('<br>');
+                scheduleText += '<br><br>الجدول الكامل يتضمن:<br>';
+            } else {
+                scheduleText += 'الجدول يتضمن:<br>';
+            }
+            
+            scheduleText += dailySchedule.slice(0, 8).map(s => `${formatTime12(s.time)} - ${s.activity}`).join('<br>');
+            scheduleText += '<br><br>يمكنك مشاهدة التفاصيل الكاملة في صفحة "الجدول اليومي".';
+            
             addChatMessage(scheduleText, 'assistant');
         }
         
@@ -558,10 +675,13 @@
         }
         
         // Full timeline
-        timeline.innerHTML = dailySchedule.map(item => `
-            <div class="timeline-item">
+        timeline.innerHTML = dailySchedule.map(item => {
+            const iconStyle = item.classColor ? `background: ${item.classColor}20; color: ${item.classColor}` : '';
+            const borderStyle = item.classColor ? `border-right: 3px solid ${item.classColor}` : '';
+            return `
+            <div class="timeline-item" style="${borderStyle}">
                 <div class="timeline-time">${formatTime12(item.time)}</div>
-                <div class="timeline-icon ${item.type}">
+                <div class="timeline-icon ${item.type}" style="${iconStyle}">
                     <i class="fas fa-${item.icon}"></i>
                 </div>
                 <div class="timeline-content">
@@ -569,7 +689,7 @@
                     <div class="timeline-desc">${item.desc}</div>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
         
         // Sidebar preview (show next 6 items based on current time)
         const now = new Date();
@@ -787,6 +907,94 @@
     };
 
     // ========================================
+    // Classes (Daily Subjects)
+    // ========================================
+    function addClass(e) {
+        e.preventDefault();
+        
+        const classItem = {
+            id: generateId(),
+            name: document.getElementById('className').value,
+            duration: parseInt(document.getElementById('classDuration').value) || 45,
+            priority: document.getElementById('classPriority').value,
+            color: document.querySelector('input[name="classColor"]:checked').value,
+            notes: document.getElementById('classNotes').value,
+            date: new Date().toISOString().split('T')[0],
+            createdAt: new Date().toISOString()
+        };
+        
+        classes.push(classItem);
+        saveData();
+        renderClasses();
+        updateSubjectsSummary();
+        
+        closeModal('classModal');
+        document.getElementById('classForm').reset();
+        document.querySelector('input[name="classColor"][value="#6c5ce7"]').checked = true;
+    }
+
+    function renderClasses() {
+        const grid = document.getElementById('classesGrid');
+        const today = new Date().toISOString().split('T')[0];
+        const todayClasses = classes.filter(c => c.date === today);
+        
+        if (todayClasses.length === 0) {
+            grid.innerHTML = '<div class="empty-state"><i class="fas fa-book-reader"></i><h3>لم تضف مواد اليوم بعد</h3><p>أضف المواد التي درستها اليوم لتظهر في جدول المذاكرة</p></div>';
+            return;
+        }
+        
+        const priorityLabels = {
+            low: 'منخفضة',
+            medium: 'متوسطة',
+            high: 'عالية'
+        };
+        
+        grid.innerHTML = todayClasses.map(cls => `
+            <div class="class-card">
+                <div class="class-card-color" style="background: ${cls.color}"></div>
+                <div class="class-card-header">
+                    <div class="class-card-icon" style="background: ${cls.color}20; color: ${cls.color}">
+                        <i class="fas fa-book-open"></i>
+                    </div>
+                    <div class="class-card-actions">
+                        <button onclick="deleteClass('${cls.id}')" title="حذف"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+                <div class="class-card-title">${cls.name}</div>
+                <div class="class-card-info">
+                    <div class="class-info-item">
+                        <i class="fas fa-clock"></i>
+                        <span>${cls.duration} دقيقة مذاكرة</span>
+                    </div>
+                    <div class="class-info-item">
+                        <i class="fas fa-flag"></i>
+                        <span>الأولوية: ${priorityLabels[cls.priority]}</span>
+                    </div>
+                </div>
+                ${cls.notes ? `<div class="class-card-notes">${cls.notes}</div>` : ''}
+            </div>
+        `).join('');
+    }
+
+    function updateSubjectsSummary() {
+        const today = new Date().toISOString().split('T')[0];
+        const todayClasses = classes.filter(c => c.date === today);
+        const totalTime = todayClasses.reduce((sum, c) => sum + (c.duration || 45), 0);
+        
+        document.getElementById('subjectsCount').textContent = todayClasses.length;
+        document.getElementById('estimatedStudyTime').textContent = totalTime;
+    }
+
+    window.deleteClass = function(id) {
+        if (confirm('هل أنت متأكد من حذف هذه المادة؟')) {
+            classes = classes.filter(c => c.id !== id);
+            saveData();
+            renderClasses();
+            updateSubjectsSummary();
+        }
+    };
+
+    // ========================================
     // Calendar
     // ========================================
     function renderCalendar() {
@@ -957,11 +1165,13 @@
         const upcomingExams = exams.filter(e => new Date(e.date) >= today).length;
         const completed = homework.filter(h => h.completed).length;
         const pending = homework.filter(h => !h.completed).length + exams.filter(e => new Date(e.date) >= today).length;
+        const totalClasses = classes.length;
         
         document.getElementById('statHomework').textContent = pendingHw;
         document.getElementById('statExams').textContent = upcomingExams;
         document.getElementById('statCompleted').textContent = completed;
         document.getElementById('statPending').textContent = pending;
+        document.getElementById('statClasses').textContent = totalClasses;
     }
 
     // ========================================

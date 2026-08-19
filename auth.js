@@ -25,7 +25,18 @@
             errorMessage.textContent = '';
             
             // Get users from localStorage
-            const users = JSON.parse(localStorage.getItem('bts_users') || '[]');
+            let users = [];
+            try {
+                const storedUsers = localStorage.getItem('bts_users');
+                if (storedUsers) {
+                    users = JSON.parse(storedUsers);
+                    if (!Array.isArray(users)) {
+                        users = [];
+                    }
+                }
+            } catch (e) {
+                users = [];
+            }
             
             // Find user
             const user = users.find(u => u.email === email && u.password === password);
@@ -81,7 +92,18 @@
             }
             
             // Get existing users
-            const users = JSON.parse(localStorage.getItem('bts_users') || '[]');
+            let users = [];
+            try {
+                const storedUsers = localStorage.getItem('bts_users');
+                if (storedUsers) {
+                    users = JSON.parse(storedUsers);
+                    if (!Array.isArray(users)) {
+                        users = [];
+                    }
+                }
+            } catch (e) {
+                users = [];
+            }
             
             // Check if email exists
             if (users.find(u => u.email === email)) {
