@@ -5,6 +5,43 @@
 (function() {
     'use strict';
 
+    // ========================================
+    // Security Utilities
+    // ========================================
+    function escapeHtml(str) {
+        if (typeof str !== 'string') return '';
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    function sanitizeInput(str) {
+        return escapeHtml(str).trim();
+    }
+
+    // Session timeout (30 minutes inactivity)
+    let sessionTimer = null;
+    const SESSION_TIMEOUT = 30 * 60 * 1000;
+
+    function resetSessionTimer() {
+        if (sessionTimer) clearTimeout(sessionTimer);
+        sessionTimer = setTimeout(function() {
+            localStorage.removeItem('currentUser');
+            window.location.href = 'index.html';
+        }, SESSION_TIMEOUT);
+    }
+
+    function setupSessionTracking() {
+        ['click', 'keypress', 'mousemove', 'scroll'].forEach(function(event) {
+            document.addEventListener(event, resetSessionTimer, { passive: true });
+        });
+        resetSessionTimer();
+    }
+
+    // Rate limit AI responses
+    let lastAiCall = 0;
+    const AI_RATE_LIMIT = 1000;
+
     // State
     let currentUser = null;
     let currentPage = 'dashboard';
@@ -24,6 +61,7 @@
         initEventListeners();
         updateStats();
         renderCalendar();
+        setupSessionTracking();
     });
 
     // Auth Check
@@ -34,6 +72,10 @@
             return;
         }
         currentUser = JSON.parse(userData);
+        // Remove sensitive fields from memory
+        delete currentUser.password;
+        delete currentUser.passwordHash;
+        delete currentUser.salt;
         updateUserInfo();
     }
 
@@ -328,6 +370,14 @@
         const message = input.value.trim();
         
         if (!message) return;
+
+        // Rate limit AI calls
+        const now = Date.now();
+        if (now - lastAiCall < AI_RATE_LIMIT) {
+            addChatMessage('يرجى الانتظار قليلاً قبل إرسال رسالة أخرى.', 'assistant');
+            return;
+        }
+        lastAiCall = now;
         
         // Create conversation if none exists
         if (!currentConversation) {
@@ -335,7 +385,7 @@
         }
         
         // Add user message
-        addChatMessage(message, 'user');
+        addChatMessage(escapeHtml(message), 'user');
         input.value = '';
         
         // Generate AI response
@@ -391,7 +441,7 @@
             if (todaySubjects.length > 0) {
                 const totalTime = todaySubjects.reduce((sum, s) => sum + (s.duration || 45), 0);
                 return `لديك ${todaySubjects.length} مواد اليوم (${totalTime} دقيقة مذاكرة):<br>` + 
-                    todaySubjects.map(c => `• ${c.name} - ${c.duration} دقيقة (الأولوية: ${c.priority === 'high' ? 'عالية' : c.priority === 'medium' ? 'متوسطة' : 'منخفضة'})`).join('<br>') +
+                    todaySubjects.map(c => `• ${escapeHtml(c.name)} - ${c.duration} دقيقة (الأولوية: ${c.priority === 'high' ? 'عالية' : c.priority === 'medium' ? 'متوسطة' : 'منخفضة'})`).join('<br>') +
                     '<br>هل تريد إنشاء جدول يومي يشمل هذه المواد؟';
             }
             return 'لم تضف مواد اليوم بعد. أضف المواد التي درستها اليوم لتظهر هنا.';
@@ -407,7 +457,7 @@
             
             if (todayHw.length > 0) {
                 return `لديك ${todayHw.length} واجب مستحق اليوم:<br>` + 
-                    todayHw.map(h => `• ${h.title} - ${h.subject}`).join('<br>') +
+                    todayHw.map(h => `• ${escapeHtml(h.title)} - ${escapeHtml(h.subject)}`).join('<br>') +
                     '<br>هل تريد مساعدة في تنظيم وقت للعمل عليها؟';
             }
             return 'لا توجد واجبات مستحقة اليوم. هل تريد إضافة واجبات جديدة؟';
@@ -425,14 +475,14 @@
             
             if (tomorrowExams.length > 0) {
                 return `لديك ${tomorrowExams.length} امتحان غداً:<br>` + 
-                    tomorrowExams.map(e => `• ${e.name} - ${e.subject} في ${formatTime12(e.time)}`).join('<br>') +
+                    tomorrowExams.map(e => `• ${escapeHtml(e.name)} - ${escapeHtml(e.subject)} في ${formatTime12(e.time)}`).join('<br>') +
                     '<br>أنصحك بالبدء في المذاكر الآن!';
             }
             
             const upcomingExams = exams.filter(e => new Date(e.date) > new Date()).slice(0, 3);
             if (upcomingExams.length > 0) {
                 return 'امتحاناتك القادمة:<br>' + 
-                    upcomingExams.map(e => `• ${e.name} - ${e.subject} (${formatDate(e.date)})`).join('<br>') +
+                    upcomingExams.map(e => `• ${escapeHtml(e.name)} - ${escapeHtml(e.subject)} (${formatDate(e.date)})`).join('<br>') +
                     '<br>هل تريد مساعدة في إنشاء خطة مذاكرة؟';
             }
             return 'لا توجد امتحانات قادمة. أضف امتحاناتك لتتبعها.';
@@ -1121,6 +1171,11 @@
             return;
         }
         
+        if (newPassword.length > 128) {
+            errorEl.textContent = 'كلمة المرور طويلة جداً (الحد الأقصى 128 حرف).';
+            return;
+        }
+        
         if (newPassword !== confirmPassword) {
             errorEl.textContent = 'كلمتا المرور الجديدتان غير متطابقتين.';
             return;
@@ -1135,25 +1190,56 @@
             return;
         }
         
-        if (users[userIndex].password !== currentPassword) {
-            errorEl.textContent = 'كلمة المرور الحالية غير صحيحة.';
-            return;
+        // Verify current password (supports hashed and legacy)
+        verifyPassword(currentPassword, users[userIndex]).then(function(valid) {
+            if (!valid) {
+                errorEl.textContent = 'كلمة المرور الحالية غير صحيحة.';
+                return;
+            }
+            
+            // Hash new password
+            const salt = generateSalt();
+            hashPassword(newPassword, salt).then(function(hash) {
+                users[userIndex].salt = salt;
+                users[userIndex].passwordHash = hash;
+                delete users[userIndex].password;
+                localStorage.setItem('bts_users', JSON.stringify(users));
+                
+                // Don't store password in session
+                alert('تم تحديث كلمة المرور بنجاح!');
+                document.getElementById('changePasswordForm').reset();
+            });
+        });
+    }
+
+    function generateSalt() {
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function hashPassword(password, salt) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(salt + password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function verifyPassword(password, user) {
+        if (user.salt && user.passwordHash) {
+            const hash = await hashPassword(password, user.salt);
+            return hash === user.passwordHash;
         }
-        
-        // Update password
-        users[userIndex].password = newPassword;
-        localStorage.setItem('bts_users', JSON.stringify(users));
-        
-        currentUser.password = newPassword;
-        localStorage.setItem('currentUser', JSON.stringify(currentUser));
-        
-        alert('تم تحديث كلمة المرور بنجاح!');
-        document.getElementById('changePasswordForm').reset();
+        // Legacy plain text fallback
+        return user.password === password;
     }
 
     function logout() {
         if (confirm('هل أنت متأكد من تسجيل الخروج؟')) {
             localStorage.removeItem('currentUser');
+            localStorage.removeItem('bts_login_attempts');
+            if (sessionTimer) clearTimeout(sessionTimer);
             window.location.href = 'index.html';
         }
     }
