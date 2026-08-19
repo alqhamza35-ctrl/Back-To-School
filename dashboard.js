@@ -199,6 +199,7 @@
 
     // Navigation
     function navigateTo(page) {
+        if (!page) return;
         currentPage = page;
         
         // Update nav items
@@ -210,12 +211,13 @@
         document.querySelectorAll('.page').forEach(p => {
             p.classList.remove('active');
         });
-        document.getElementById('page-' + page).classList.add('active');
+        const pageEl = document.getElementById('page-' + page);
+        if (pageEl) pageEl.classList.add('active');
         
         // Update page title
         const titles = {
             dashboard: { title: 'لوحة التحكم', subtitle: 'مرحباً بك اليوم' },
-            classes: { title: 'الفصل الدراسي', subtitle: 'إدارة حصصك الدراسية' },
+            classes: { title: 'مواد اليوم', subtitle: 'المواد التي درستها اليوم' },
             homework: { title: 'الواجبات', subtitle: 'إدارة واجباتك المدرسية' },
             exams: { title: 'الامتحانات', subtitle: 'تتبع امتحاناتك القادمة' },
             schedule: { title: 'الجدول اليومي', subtitle: 'خطط يومك بذكاء' },
@@ -223,7 +225,10 @@
             settings: { title: 'الإعدادات', subtitle: 'تخصيص حسابك' }
         };
         
-        document.getElementById('pageTitle').innerHTML = `<h1>${titles[page].title}</h1><p>${titles[page].subtitle}</p>`;
+        const titleData = titles[page];
+        if (titleData) {
+            document.getElementById('pageTitle').innerHTML = `<h1>${titleData.title}</h1><p>${titleData.subtitle}</p>`;
+        }
         
         // Close mobile menu
         document.getElementById('sidebar').classList.remove('active');
@@ -380,17 +385,16 @@
         
         // Classes today
         if (lowerMsg.includes('حصص') || lowerMsg.includes('حصة') || lowerMsg.includes('فصل') || lowerMsg.includes('مواد') || lowerMsg.includes('classes')) {
-            const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-            const today = new Date();
-            const todayDay = dayNames[today.getDay()];
-            const todayClasses = classes.filter(c => c.day === todayDay);
+            const todayDate = new Date().toISOString().split('T')[0];
+            const todaySubjects = classes.filter(c => c.date === todayDate);
             
-            if (todayClasses.length > 0) {
-                return `لديك ${todayClasses.length} حصص اليوم:<br>` + 
-                    todayClasses.map(c => `• ${c.name} - ${formatTime12(c.startTime)} إلى ${formatTime12(c.endTime)}${c.room ? ' (القاعة: ' + c.room + ')' : ''}`).join('<br>') +
-                    '<br>هل تريد إنشاء جدول يومي يشمل هذه الحصص؟';
+            if (todaySubjects.length > 0) {
+                const totalTime = todaySubjects.reduce((sum, s) => sum + (s.duration || 45), 0);
+                return `لديك ${todaySubjects.length} مواد اليوم (${totalTime} دقيقة مذاكرة):<br>` + 
+                    todaySubjects.map(c => `• ${c.name} - ${c.duration} دقيقة (الأولوية: ${c.priority === 'high' ? 'عالية' : c.priority === 'medium' ? 'متوسطة' : 'منخفضة'})`).join('<br>') +
+                    '<br>هل تريد إنشاء جدول يومي يشمل هذه المواد؟';
             }
-            return 'لا توجد حصص مسجلة لهذا اليوم. هل تريد إضافة حصص جديدة؟';
+            return 'لم تضف مواد اليوم بعد. أضف المواد التي درستها اليوم لتظهر هنا.';
         }
         
         // Homework related
@@ -441,7 +445,7 @@
         }
         
         // Sleep schedule
-        if (lowerMsg.includes('نوم') || lowerMsg.includes('نوم') || lowerMsg.includes('sleep')) {
+        if (lowerMsg.includes('نوم') || lowerMsg.includes('استيقاظ') || lowerMsg.includes('sleep')) {
             const wakeUp = formatTime12(document.getElementById('wakeUpTime').value);
             const sleep = formatTime12(document.getElementById('sleepTime').value);
             return `وقت نومك الحالي: ${sleep}<br>وقت استيقاظك: ${wakeUp}<br>` +
@@ -450,7 +454,7 @@
         
         // Greeting
         if (lowerMsg.includes('مرحبا') || lowerMsg.includes('السلام') || lowerMsg.includes('أهلا') || lowerMsg.includes('hello') || lowerMsg.includes('hi')) {
-            return 'مرحباً بك! كيف يمكنني مساعدتك في تنظيم يومك اليوم؟ يمكنك问我 عن الواجبات، الامتحانات، أو إنشاء جدول يومي.';
+            return 'مرحباً بك! كيف يمكنني مساعدتك في تنظيم يومك اليوم؟ يمكنك سؤالي عن الواجبات، الامتحانات، أو إنشاء جدول يومي.';
         }
         
         // Help
@@ -620,7 +624,7 @@
         dailySchedule.push({ time: dinner, activity: 'وجبة العشاء', icon: 'utensils', type: 'meal', desc: 'وجبة العشاء' });
         
         // Free time
-        dailySchedule.push({ time: minutesToTime(timeToMinutes(dinner) + 60), activity: 'وقت حر', icon: 'gamepad', type: 'other', desc: 'ترفيه و放松' });
+        dailySchedule.push({ time: minutesToTime(timeToMinutes(dinner) + 60), activity: 'وقت حر', icon: 'gamepad', type: 'other', desc: 'ترفيه واسترخاء' });
         
         // Prepare for next day
         dailySchedule.push({ time: minutesToTime(timeToMinutes(sleep) - 60), activity: 'الاستعداد للنوم', icon: 'bed', type: 'other', desc: 'تجهيز أغراض الغد' });
@@ -1161,17 +1165,18 @@
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
+        const todayDate = new Date().toISOString().split('T')[0];
         const pendingHw = homework.filter(h => !h.completed && new Date(h.dueDate) >= today).length;
         const upcomingExams = exams.filter(e => new Date(e.date) >= today).length;
         const completed = homework.filter(h => h.completed).length;
         const pending = homework.filter(h => !h.completed).length + exams.filter(e => new Date(e.date) >= today).length;
-        const totalClasses = classes.length;
+        const todaySubjects = classes.filter(c => c.date === todayDate).length;
         
         document.getElementById('statHomework').textContent = pendingHw;
         document.getElementById('statExams').textContent = upcomingExams;
         document.getElementById('statCompleted').textContent = completed;
         document.getElementById('statPending').textContent = pending;
-        document.getElementById('statClasses').textContent = totalClasses;
+        document.getElementById('statClasses').textContent = todaySubjects;
     }
 
     // ========================================
