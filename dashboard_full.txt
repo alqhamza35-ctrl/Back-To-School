@@ -1,0 +1,2091 @@
+﻿// ========================================
+// Back to School - Dashboard Module
+// ========================================
+
+(function() {
+    'use strict';
+
+    // ========================================
+    // Security Utilities
+    // ========================================
+    function escapeHtml(str) {
+        if (typeof str !== 'string') return '';
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    function sanitizeInput(str) {
+        return escapeHtml(str).trim();
+    }
+
+    // Session timeout (30 minutes inactivity)
+    let sessionTimer = null;
+    const SESSION_TIMEOUT = 30 * 60 * 1000;
+
+    function resetSessionTimer() {
+        if (sessionTimer) clearTimeout(sessionTimer);
+        sessionTimer = setTimeout(function() {
+            localStorage.removeItem('currentUser');
+            window.location.href = 'index.html';
+        }, SESSION_TIMEOUT);
+    }
+
+    function setupSessionTracking() {
+        ['click', 'keypress', 'mousemove', 'scroll'].forEach(function(event) {
+            document.addEventListener(event, resetSessionTimer, { passive: true });
+        });
+        resetSessionTimer();
+    }
+
+    // Rate limit AI responses
+    let lastAiCall = 0;
+    const AI_RATE_LIMIT = 1000;
+
+    // State
+    let currentUser = null;
+    let currentPage = 'dashboard';
+    let conversations = [];
+    let currentConversation = null;
+    let homework = [];
+    let exams = [];
+    let classes = [];
+    let dailySchedule = [];
+    let calendarDate = new Date();
+
+    // Gamification State
+    let gamification = {
+        points: 0,
+        xp: 0,
+        level: 1,
+        totalCompletedHW: 0,
+        totalPomodoroSessions: 0,
+        streak: 0,
+        lastActiveDate: '',
+        badges: [],
+        pointsLog: []
+    };
+
+    // Pomodoro State
+    let pomodoro = {
+        settings: { workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, roundsBeforeLong: 4 },
+        todayStats: { date: '', completedSessions: 0, totalMinutes: 0, currentStreak: 0, history: [] }
+    };
+    let pomoTimer = null;
+    let pomoState = 'idle';
+    let pomoMode = 'work';
+    let pomoBreakType = 'short';
+    let pomoTimeLeft = 25 * 60;
+    let pomoTotalTime = 25 * 60;
+    let pomoRoundsDone = 0;
+
+    // Parent Dashboard State
+    let parentCode = '';
+
+    // Task Tracking State
+    let timeBlocks = [];
+    let dailyActivity = {};
+
+    // Notification Settings State
+    let notificationSettings = {
+        homework: true,
+        exams: true,
+        schedule: true,
+        dailyReminder: true
+    };
+
+    // Theme State
+    let currentTheme = 'dark';
+
+    // Voice Control State
+    let recognition = null;
+    let isListening = false;
+
+    // Helper functions
+    function generateId() {
+        const array = new Uint8Array(16);
+        crypto.getRandomValues(array);
+        return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function timeToMinutes(timeStr) {
+        if (!timeStr) return 0;
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+    }
+
+    function minutesToTime(mins) {
+        const h = Math.floor(mins / 60) % 24;
+        const m = mins % 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+
+    function formatTime12(timeStr) {
+        if (!timeStr) return '';
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        const period = hours >= 12 ? 'Ù…' : 'Øµ';
+        const h12 = hours % 12 || 12;
+        return `${h12}:${String(minutes).padStart(2, '0')} ${period}`;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function getPriorityLabel(priority) {
+        const labels = { low: 'Ù…Ù†Ø®ÙØ¶Ø©', medium: 'Ù…ØªÙˆØ³Ø·Ø©', high: 'Ø¹Ø§Ù„ÙŠØ©' };
+        return labels[priority] || priority;
+    }
+
+    function isValidColor(color) {
+        return /^#[0-9a-fA-F]{6}$/.test(color);
+    }
+
+    window.closeModal = function(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) modal.classList.remove('active');
+    };
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        checkAuth();
+        initUI();
+        loadData();
+        initEventListeners();
+        updateStats();
+        renderCalendar();
+        setupSessionTracking();
+    });
+
+    // Auth Check
+    function checkAuth() {
+        const userData = localStorage.getItem('currentUser');
+        if (!userData) {
+            window.location.href = 'index.html';
+            return;
+        }
+        currentUser = JSON.parse(userData);
+        delete currentUser.password;
+        delete currentUser.passwordHash;
+        delete currentUser.salt;
+        updateUserInfo();
+    }
+
+    // Update User Info
+    function updateUserInfo() {
+        const initial = currentUser.displayName ? currentUser.displayName.charAt(0) : 'Ù…';
+        var el;
+        if (el = document.getElementById('userAvatar')) el.textContent = initial;
+        if (el = document.getElementById('userAvatarSm')) el.textContent = initial;
+        if (el = document.getElementById('userName')) el.textContent = currentUser.displayName || 'Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…';
+        if (el = document.getElementById('userEmail')) el.textContent = currentUser.email;
+        if (el = document.getElementById('settingsName')) el.textContent = currentUser.displayName;
+        if (el = document.getElementById('settingsEmail')) el.textContent = currentUser.email;
+        
+        if (currentUser.settings) {
+            if (el = document.getElementById('wakeUpTime')) el.value = currentUser.settings.wakeUpTime || '06:00';
+            if (el = document.getElementById('sleepTime')) el.value = currentUser.settings.sleepTime || '22:00';
+            if (el = document.getElementById('schoolStart')) el.value = currentUser.settings.schoolStart || '07:30';
+            if (el = document.getElementById('schoolEnd')) el.value = currentUser.settings.schoolEnd || '14:00';
+            if (el = document.getElementById('breakfastTime')) el.value = currentUser.settings.breakfastTime || '06:30';
+            if (el = document.getElementById('lunchTime')) el.value = currentUser.settings.lunchTime || '14:30';
+            if (el = document.getElementById('dinnerTime')) el.value = currentUser.settings.dinnerTime || '20:00';
+            if (el = document.getElementById('exerciseTime')) el.value = currentUser.settings.exerciseTime || '16:00';
+            if (el = document.getElementById('showerTime')) el.value = currentUser.settings.showerTime || '21:00';
+        }
+    }
+
+    // Load Data
+    function loadData() {
+        const userId = currentUser.id;
+        conversations = JSON.parse(localStorage.getItem('bts_conversations_' + userId) || '[]');
+        homework = JSON.parse(localStorage.getItem('bts_homework_' + userId) || '[]');
+        exams = JSON.parse(localStorage.getItem('bts_exams_' + userId) || '[]');
+        classes = JSON.parse(localStorage.getItem('bts_classes_' + userId) || '[]');
+        dailySchedule = JSON.parse(localStorage.getItem('bts_schedule_' + userId) || '[]');
+        gamification = JSON.parse(localStorage.getItem('bts_gamification_' + userId) || 'null') || gamification;
+        pomodoro = JSON.parse(localStorage.getItem('bts_pomodoro_' + userId) || 'null') || pomodoro;
+        parentCode = localStorage.getItem('bts_parent_code_' + userId) || '';
+        timeBlocks = JSON.parse(localStorage.getItem('bts_timeblocks_' + userId) || '[]');
+        dailyActivity = JSON.parse(localStorage.getItem('bts_dailyactivity_' + userId) || '{}');
+        notificationSettings = JSON.parse(localStorage.getItem('bts_notifsettings_' + userId) || 'null') || notificationSettings;
+        currentTheme = localStorage.getItem('bts_theme_' + userId) || 'dark';
+
+        const today = new Date().toISOString().split('T')[0];
+        if (pomodoro.todayStats.date !== today) {
+            pomodoro.todayStats = { date: today, completedSessions: 0, totalMinutes: 0, currentStreak: 0, history: [] };
+        }
+
+        updateStreak();
+        renderConversations();
+        renderHomework();
+        renderExams();
+        renderClasses();
+        updateSubjectsSummary();
+        renderDailySchedule();
+        renderAchievements();
+        renderPointsLog();
+        renderBadges();
+        initPomodoroDisplay();
+        renderPomodoroStats();
+        renderPomodoroHistory();
+        initParentDashboard();
+        renderTimeBlocks();
+        renderTodayChecklist();
+        renderWeeklyActivity();
+        updateTrackingStats();
+        generateHabitInsights();
+        initTheme();
+        initVoiceControl();
+        initNotificationSettings();
+        scheduleNotifications();
+    }
+
+    // Save Data
+    function saveData() {
+        const userId = currentUser.id;
+        localStorage.setItem('bts_conversations_' + userId, JSON.stringify(conversations));
+        localStorage.setItem('bts_homework_' + userId, JSON.stringify(homework));
+        localStorage.setItem('bts_exams_' + userId, JSON.stringify(exams));
+        localStorage.setItem('bts_classes_' + userId, JSON.stringify(classes));
+        localStorage.setItem('bts_schedule_' + userId, JSON.stringify(dailySchedule));
+        localStorage.setItem('bts_gamification_' + userId, JSON.stringify(gamification));
+        localStorage.setItem('bts_pomodoro_' + userId, JSON.stringify(pomodoro));
+        localStorage.setItem('bts_parent_code_' + userId, parentCode);
+        localStorage.setItem('bts_timeblocks_' + userId, JSON.stringify(timeBlocks));
+        localStorage.setItem('bts_dailyactivity_' + userId, JSON.stringify(dailyActivity));
+        localStorage.setItem('bts_notifsettings_' + userId, JSON.stringify(notificationSettings));
+        localStorage.setItem('bts_theme_' + userId, currentTheme);
+    }
+
+    // Init UI
+    function initUI() {
+        const today = new Date().toISOString().split('T')[0];
+        const hwDueDate = document.getElementById('hwDueDate');
+        const examDate = document.getElementById('examDate');
+        if (hwDueDate) hwDueDate.value = today;
+        if (examDate) examDate.value = today;
+    }
+
+    // Event Listeners
+    function safeOn(id, event, handler) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener(event, handler);
+    }
+
+    function initEventListeners() {
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                navigateTo(this.dataset.page);
+            });
+        });
+
+        safeOn('mobileMenuBtn', 'click', function() {
+            document.getElementById('sidebar').classList.toggle('active');
+        });
+
+        safeOn('sidebarToggle', 'click', function() {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+        });
+
+        safeOn('newChatBtn', 'click', createNewConversation);
+
+        safeOn('chatInput', 'keypress', function(e) {
+            if (e.key === 'Enter') sendChatMessage();
+        });
+        safeOn('sendChatBtn', 'click', sendChatMessage);
+
+        safeOn('generateScheduleBtn', 'click', generateDailySchedule);
+        safeOn('generateScheduleBtn2', 'click', generateDailySchedule);
+
+        ['wakeUpTime', 'sleepTime', 'schoolStart', 'schoolEnd', 'breakfastTime', 'lunchTime', 'dinnerTime', 'exerciseTime', 'showerTime'].forEach(id => {
+            safeOn(id, 'change', saveSettings);
+        });
+
+        safeOn('addHomeworkBtn', 'click', () => document.getElementById('homeworkModal').classList.add('active'));
+        safeOn('addExamBtn', 'click', () => document.getElementById('examModal').classList.add('active'));
+        safeOn('addClassBtn', 'click', () => document.getElementById('classModal').classList.add('active'));
+
+        safeOn('classForm', 'submit', addClass);
+        safeOn('homeworkForm', 'submit', addHomework);
+        safeOn('examForm', 'submit', addExam);
+
+        document.querySelectorAll('.homework-filters .filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.homework-filters .filter-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                renderHomework(this.dataset.filter);
+            });
+        });
+
+        safeOn('prevMonth', 'click', () => { calendarDate.setMonth(calendarDate.getMonth() - 1); renderCalendar(); });
+        safeOn('nextMonth', 'click', () => { calendarDate.setMonth(calendarDate.getMonth() + 1); renderCalendar(); });
+
+        safeOn('changePasswordForm', 'submit', changePassword);
+        safeOn('logoutBtn', 'click', logout);
+        safeOn('logoutBtnSettings', 'click', logout);
+
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', function(e) {
+                if (e.target === this) this.classList.remove('active');
+            });
+        });
+
+        safeOn('pomoStartBtn', 'click', startPomodoro);
+        safeOn('pomoPauseBtn', 'click', pausePomodoro);
+        safeOn('pomoResetBtn', 'click', resetPomodoro);
+        safeOn('pomoSkipBtn', 'click', skipPomodoro);
+
+        document.querySelectorAll('.pomo-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                if (pomoState === 'running') return;
+                const mode = this.dataset.mode;
+                setActivePomoTab(mode);
+                pomoMode = mode === 'work' ? 'work' : 'break';
+                pomoBreakType = mode === 'long' ? 'long' : 'short';
+                const mins = mode === 'work' ? pomodoro.settings.workMinutes : (mode === 'long' ? pomodoro.settings.longBreakMinutes : pomodoro.settings.shortBreakMinutes);
+                pomoTimeLeft = mins * 60;
+                pomoTotalTime = mins * 60;
+                pomoState = 'idle';
+                updatePomodoroDisplay();
+                updatePomodoroControls();
+            });
+        });
+
+        ['pomoWorkMin', 'pomoShortMin', 'pomoLongMin', 'pomoRounds'].forEach(id => {
+            safeOn(id, 'change', function() {
+                pomodoro.settings.workMinutes = parseInt(document.getElementById('pomoWorkMin').value) || 25;
+                pomodoro.settings.shortBreakMinutes = parseInt(document.getElementById('pomoShortMin').value) || 5;
+                pomodoro.settings.longBreakMinutes = parseInt(document.getElementById('pomoLongMin').value) || 15;
+                pomodoro.settings.roundsBeforeLong = parseInt(document.getElementById('pomoRounds').value) || 4;
+                if (pomoState === 'idle') {
+                    pomoTimeLeft = (pomoMode === 'work' ? pomodoro.settings.workMinutes : pomodoro.settings.shortBreakMinutes) * 60;
+                    pomoTotalTime = pomoTimeLeft;
+                    updatePomodoroDisplay();
+                }
+                saveData();
+            });
+        });
+
+        safeOn('generateParentCode', 'click', generateParentCode);
+
+        initTaskTracking();
+        initExportImport();
+    }
+
+    // Navigation
+    function navigateTo(page) {
+        if (!page) return;
+        currentPage = page;
+        
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.page === page);
+        });
+        
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        const pageEl = document.getElementById('page-' + page);
+        if (pageEl) pageEl.classList.add('active');
+        
+        const titles = {
+            dashboard: { title: 'Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ…', subtitle: 'Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ùƒ Ø§Ù„ÙŠÙˆÙ…' },
+            classes: { title: 'Ù…ÙˆØ§Ø¯ Ø§Ù„ÙŠÙˆÙ…', subtitle: 'Ø§Ù„Ù…ÙˆØ§Ø¯ Ø§Ù„ØªÙŠ Ø¯Ø±Ø³ØªÙ‡Ø§ Ø§Ù„ÙŠÙˆÙ…' },
+            homework: { title: 'Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª', subtitle: 'Ø¥Ø¯Ø§Ø±Ø© ÙˆØ§Ø¬Ø¨Ø§ØªÙƒ Ø§Ù„Ù…Ø¯Ø±Ø³ÙŠØ©' },
+            exams: { title: 'Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª', subtitle: 'ØªØªØ¨Ø¹ Ø§Ù…ØªØ­Ø§Ù†Ø§ØªÙƒ Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©' },
+            schedule: { title: 'Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø§Ù„ÙŠÙˆÙ…ÙŠ', subtitle: 'Ø®Ø·Ø· ÙŠÙˆÙ…Ùƒ Ø¨Ø°ÙƒØ§Ø¡' },
+            calendar: { title: 'Ø§Ù„ØªÙ‚ÙˆÙŠÙ…', subtitle: 'Ø¹Ø±Ø¶ Ø£Ø­Ø¯Ø§Ø«Ùƒ ÙˆÙ…ÙˆØ§Ø¹ÙŠØ¯Ùƒ' },
+            pomodoro: { title: 'Ù…Ø¤Ù‚Øª Ø§Ù„Ù…Ø°Ø§ÙƒØ±Ø©', subtitle: 'ØªÙ‚Ù†ÙŠØ© Ø¨ÙˆÙ…ÙˆØ¯ÙˆØ±Ùˆ Ù„Ù„Ù…Ø°Ø§ÙƒØ±Ø© Ø§Ù„ÙØ¹Ø§Ù„Ø©' },
+            achievements: { title: 'Ø§Ù„Ø¥Ù†Ø¬Ø§Ø²Ø§Øª', subtitle: 'Ù†Ù‚Ø§Ø·Ùƒ ÙˆØ´Ø§Ø±Ø§ØªÙƒ' },
+            tasktracking: { title: 'ØªØªØ¨Ø¹ Ø§Ù„Ù…Ù‡Ø§Ù… Ø§Ù„Ø¯Ø±Ø§Ø³ÙŠØ©', subtitle: 'ØªØªØ¨Ø¹ Ø³Ø§Ø¹Ø§Øª Ø§Ù„Ù…Ø°Ø§ÙƒØ±Ø© ÙˆØ§Ù„ØªÙ‚Ø¯Ù…' },
+            parent: { title: 'Ù„ÙˆØ­Ø© Ø§Ù„ÙˆØ§Ù„Ø¯ÙŠÙ†', subtitle: 'Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„ØªÙ‚Ø¯Ù… Ø§Ù„Ø¯Ø±Ø§Ø³ÙŠ' },
+            settings: { title: 'Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª', subtitle: 'ØªØ®ØµÙŠØµ Ø­Ø³Ø§Ø¨Ùƒ' },
+            tasktracking: { title: 'ØªØªØ¨Ø¹ Ø§Ù„Ù…Ù‡Ø§Ù…', subtitle: 'Ø­Ø¯Ø¯ Ø£ÙˆÙ‚Ø§Øª Ù…Ø®ØµØµØ© Ù„Ù„Ù…Ø°Ø§ÙƒØ±Ø© ÙˆØ§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©' }
+        };
+        
+        const titleData = titles[page];
+        if (titleData) {
+            var pageTitle = document.getElementById('pageTitle');
+            if (pageTitle) pageTitle.innerHTML = `<h1>${titleData.title}</h1><p>${titleData.subtitle}</p>`;
+        }
+        
+        var sidebar = document.getElementById('sidebar');
+        if (sidebar) sidebar.classList.remove('active');
+    }
+
+    // Updates Stats
+    function updateStats() {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+
+        const pendingHw = homework.filter(h => !h.completed).length;
+        const completedHw = homework.filter(h => h.completed).length;
+        const upcomingExams = exams.filter(e => new Date(e.date) >= today).length;
+        const todayDate = today.toISOString().split('T')[0];
+        const todayClassesCount = classes.filter(c => c.date === todayDate).length;
+
+        var el;
+        if (el = document.getElementById('statHomework')) el.textContent = pendingHw;
+        if (el = document.getElementById('statExams')) el.textContent = upcomingExams;
+        if (el = document.getElementById('statCompleted')) el.textContent = completedHw;
+        if (el = document.getElementById('statPending')) el.textContent = pendingHw;
+        if (el = document.getElementById('statClasses')) el.textContent = todayClassesCount;
+    }
+
+    // Conversations
+    function createNewConversation() {
+        const conversation = {
+            id: generateId(),
+            title: 'Ù…Ø­Ø§Ø¯Ø«Ø© Ø¬Ø¯ÙŠØ¯Ø©',
+            messages: [],
+            createdAt: new Date().toISOString()
+        };
+        
+        conversations.unshift(conversation);
+        currentConversation = conversation;
+        saveData();
+        renderConversations();
+        clearChat();
+        navigateTo('dashboard');
+    }
+
+    function renderConversations() {
+        const list = document.getElementById('conversationsList');
+        if (!list) return;
+        if (conversations.length === 0) {
+            list.innerHTML = '<div class="conversation-empty">Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ø­Ø§Ø¯Ø«Ø§Øª Ø¨Ø¹Ø¯</div>';
+            return;
+        }
+        list.innerHTML = conversations.map(conv => `
+            <div class="conversation-item ${currentConversation && currentConversation.id === conv.id ? 'active' : ''}" 
+                 data-id="${escapeHtml(conv.id)}" onclick="loadConversation('${escapeHtml(conv.id)}')">
+                <i class="fas fa-comment-dots"></i>
+                <span>${escapeHtml(conv.title)}</span>
+            </div>
+        `).join('');
+    }
+
+    window.loadConversation = function(id) {
+        currentConversation = conversations.find(c => c.id === id);
+        renderConversations();
+        loadChatHistory();
+    };
+
+    function loadChatHistory() {
+        const chatMessages = document.getElementById('chatMessages');
+        if (!chatMessages || !currentConversation || currentConversation.messages.length === 0) {
+            clearChat();
+            return;
+        }
+        chatMessages.innerHTML = currentConversation.messages.map(msg => `
+            <div class="message ${msg.role}">
+                <div class="message-avatar">
+                    <i class="fas fa-${msg.role === 'assistant' ? 'robot' : 'user'}"></i>
+                </div>
+                <div class="message-content">${msg.role === 'user' ? escapeHtml(msg.content) : msg.content}</div>
+            </div>
+        `).join('');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function clearChat() {
+        const chatMessages = document.getElementById('chatMessages');
+        if (!chatMessages) return;
+        chatMessages.innerHTML = `
+            <div class="message assistant">
+                <div class="message-avatar"><i class="fas fa-robot"></i></div>
+                <div class="message-content">
+                    <p>Ù…Ø±Ø­Ø¨Ø§Ù‹! Ø£Ù†Ø§ Ù…Ø³Ø§Ø¹Ø¯Ùƒ Ø§Ù„Ø°ÙƒÙŠ Ù„Ù„ØªØ®Ø·ÙŠØ· Ø§Ù„ÙŠÙˆÙ…ÙŠ. ÙŠÙ…ÙƒÙ†Ù†ÙŠ Ù…Ø³Ø§Ø¹Ø¯ØªÙƒ ÙÙŠ:</p>
+                    <ul>
+                        <li>ØªÙ†Ø¸ÙŠÙ… Ø¬Ø¯ÙˆÙ„ ÙŠÙˆÙ…Ùƒ</li>
+                        <li>Ø¬Ø¯ÙˆÙ„Ø© Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª ÙˆØ§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª</li>
+                        <li>ØªØ®ØµÙŠØµ Ø£ÙˆÙ‚Ø§Øª Ù„Ù„ØªÙ…Ø§Ø±ÙŠÙ† ÙˆØ§Ù„Ø±Ø§Ø­Ø©</li>
+                    </ul>
+                    <p>Ø§ÙƒØªØ¨ "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¬Ø¯ÙˆÙ„" Ù„Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ø¯ÙˆÙ„ ÙŠÙˆÙ…Ùƒ!</p>
+                </div>
+            </div>
+        `;
+    }
+
+    // AI Chat
+    function sendChatMessage() {
+        const input = document.getElementById('chatInput');
+        const message = input.value.trim();
+        if (!message) return;
+
+        const now = Date.now();
+        if (now - lastAiCall < AI_RATE_LIMIT) {
+            addChatMessage('ÙŠØ±Ø¬Ù‰ Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø± Ù‚Ù„ÙŠÙ„Ø§Ù‹ Ù‚Ø¨Ù„ Ø¥Ø±Ø³Ø§Ù„ Ø±Ø³Ø§Ù„Ø© Ø£Ø®Ø±Ù‰.', 'assistant');
+            return;
+        }
+        lastAiCall = now;
+        
+        if (!currentConversation) createNewConversation();
+        
+        addChatMessage(message, 'user');
+        input.value = '';
+        
+        setTimeout(() => {
+            const response = generateAIResponse(message);
+            addChatMessage(response, 'assistant');
+        }, 500);
+    }
+
+    function addChatMessage(content, role) {
+        const chatMessages = document.getElementById('chatMessages');
+        const safeContent = role === 'user' ? escapeHtml(content) : content;
+        const messageHtml = `
+            <div class="message ${role}">
+                <div class="message-avatar">
+                    <i class="fas fa-${role === 'assistant' ? 'robot' : 'user'}"></i>
+                </div>
+                <div class="message-content">${safeContent}</div>
+            </div>
+        `;
+        chatMessages.insertAdjacentHTML('beforeend', messageHtml);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        if (currentConversation) {
+            currentConversation.messages.push({ role, content, timestamp: new Date().toISOString() });
+            if (currentConversation.messages.length === 1 && role === 'user') {
+                currentConversation.title = content.substring(0, 30) + (content.length > 30 ? '...' : '');
+                renderConversations();
+            }
+            saveData();
+        }
+    }
+
+    // Daily Schedule Generator
+    function generateDailySchedule() {
+        var scheduleWakeEl = document.getElementById('scheduleWakeUp');
+        var scheduleSleepEl = document.getElementById('scheduleSleep');
+        const wakeUp = scheduleWakeEl ? scheduleWakeEl.value : document.getElementById('wakeUpTime').value;
+        const sleep = scheduleSleepEl ? scheduleSleepEl.value : document.getElementById('sleepTime').value;
+        const schoolStart = document.getElementById('schoolStart').value;
+        const schoolEnd = document.getElementById('schoolEnd').value;
+        const breakfast = document.getElementById('breakfastTime').value;
+        const lunch = document.getElementById('lunchTime').value;
+        const dinner = document.getElementById('dinnerTime').value;
+        const exercise = document.getElementById('exerciseTime').value;
+        
+        dailySchedule = [];
+        dailySchedule.push({ time: wakeUp, activity: 'Ø§Ù„Ø§Ø³ØªÙŠÙ‚Ø§Ø¸', icon: 'sun', type: 'other', desc: 'Ø¨Ø¯Ø§ÙŠØ© ÙŠÙˆÙ… Ø¬Ø¯ÙŠØ¯' });
+        dailySchedule.push({ time: breakfast, activity: 'ÙˆØ¬Ø¨Ø© Ø§Ù„Ø¥ÙØ·Ø§Ø±', icon: 'utensils', type: 'meal', desc: 'ÙˆØ¬Ø¨Ø© ØµØ­ÙŠØ©' });
+        
+        const schoolStartMin = timeToMinutes(schoolStart);
+        dailySchedule.push({ time: minutesToTime(schoolStartMin - 30), activity: 'Ø§Ù„Ø°Ù‡Ø§Ø¨ Ù„Ù„Ù…Ø¯Ø±Ø³Ø©', icon: 'bus', type: 'other', desc: 'Ø§Ù„Ø³ÙØ± Ù„Ù„Ù…Ø¯Ø±Ø³Ø©' });
+        dailySchedule.push({ time: schoolStart, activity: 'Ø¨Ø¯Ø§ÙŠØ© Ø§Ù„Ø¯ÙˆØ§Ù… Ø§Ù„Ù…Ø¯Ø±Ø³ÙŠ', icon: 'school', type: 'school', desc: 'Ø¯Ø±Ø§Ø³Ø©' });
+        
+        dailySchedule.push({ time: schoolEnd, activity: 'Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ø¯ÙˆØ§Ù… ÙˆØ§Ù„Ø¹ÙˆØ¯Ø©', icon: 'home', type: 'school', desc: 'Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„Ù…Ù†Ø²Ù„' });
+        dailySchedule.push({ time: lunch, activity: 'ÙˆØ¬Ø¨Ø© Ø§Ù„ØºØ¯Ø§Ø¡', icon: 'utensils', type: 'meal', desc: 'Ø§Ø³ØªØ±Ø§Ø­Ø© ÙˆØºØ¯Ø§Ø¡' });
+        
+        const todayDate = new Date().toISOString().split('T')[0];
+        const todaySubjects = classes.filter(c => c.date === todayDate);
+        let currentStudyTime = timeToMinutes(lunch) + 90;
+        
+        if (todaySubjects.length > 0) {
+            todaySubjects.forEach(subj => {
+                dailySchedule.push({ 
+                    time: minutesToTime(currentStudyTime), 
+                    activity: `Ù…Ø°Ø§ÙƒØ±Ø©: ${subj.name}`, 
+                    icon: 'book-open', 
+                    type: 'study', 
+                    desc: `${subj.duration} Ø¯Ù‚ÙŠÙ‚Ø©`,
+                    classColor: subj.color 
+                });
+                currentStudyTime += subj.duration;
+            });
+        } else {
+            dailySchedule.push({ time: minutesToTime(currentStudyTime), activity: 'ÙˆÙ‚Øª Ø§Ù„Ù…Ø°Ø§ÙƒØ±Ø© ÙˆØ§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª', icon: 'book', type: 'study', desc: 'Ù…Ø±Ø§Ø¬Ø¹Ø© Ø¹Ø§Ù…Ø©' });
+        }
+        
+        dailySchedule.push({ time: exercise, activity: 'Ø§Ù„ØªÙ…Ø§Ø±ÙŠÙ† Ø§Ù„Ø±ÙŠØ§Ø¶ÙŠØ©', icon: 'dumbbell', type: 'exercise', desc: 'Ù†Ø´Ø§Ø· Ø¨Ø¯Ù†ÙŠ' });
+        dailySchedule.push({ time: dinner, activity: 'ÙˆØ¬Ø¨Ø© Ø§Ù„Ø¹Ø´Ø§Ø¡', icon: 'utensils', type: 'meal', desc: 'Ø¹Ø´Ø§Ø¡' });
+        dailySchedule.push({ time: sleep, activity: 'Ø§Ù„Ù†ÙˆÙ…', icon: 'moon', type: 'sleep', desc: 'Ù†ÙˆÙ… Ù‡Ø§Ø¯Ø¦' });
+        
+        dailySchedule.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+        addPoints('schedule_generated');
+        saveData();
+        renderDailySchedule();
+        navigateTo('schedule');
+    }
+
+    function renderDailySchedule() {
+        const timeline = document.getElementById('scheduleTimeline');
+        const preview = document.getElementById('dailySchedulePreview');
+        
+        if (!timeline || !preview) return;
+        
+        if (dailySchedule.length === 0) {
+            timeline.innerHTML = '<div class="empty-state"><i class="fas fa-calendar-day"></i><h3>Ù„Ù… ÙŠØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø¨Ø¹Ø¯</h3></div>';
+            preview.innerHTML = '<div class="schedule-empty">Ù„Ù… ÙŠØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø¨Ø¹Ø¯</div>';
+            return;
+        }
+        
+        timeline.innerHTML = dailySchedule.map(item => `
+            <div class="timeline-item" style="${item.classColor && isValidColor(item.classColor) ? 'border-right: 3px solid ' + item.classColor : ''}">
+                <div class="timeline-time">${formatTime12(item.time)}</div>
+                <div class="timeline-icon ${item.type}">
+                    <i class="fas fa-${item.icon}"></i>
+                </div>
+                <div class="timeline-content">
+                    <div class="timeline-title">${escapeHtml(item.activity)}</div>
+                    <div class="timeline-desc">${escapeHtml(item.desc)}</div>
+                </div>
+            </div>
+        `).join('');
+        
+        preview.innerHTML = dailySchedule.slice(0, 6).map(item => `
+            <div class="schedule-item-preview">
+                <span class="schedule-time">${formatTime12(item.time)}</span>
+                <span class="schedule-activity">${escapeHtml(item.activity)}</span>
+            </div>
+        `).join('');
+    }
+
+    // Homework Management
+    function addHomework(e) {
+        e.preventDefault();
+        const hw = {
+            id: generateId(),
+            title: document.getElementById('hwTitle').value,
+            subject: document.getElementById('hwSubject').value,
+            description: document.getElementById('hwDescription').value,
+            dueDate: document.getElementById('hwDueDate').value,
+            day: document.getElementById('hwDay').value,
+            priority: document.getElementById('hwPriority').value,
+            completed: false,
+            createdAt: new Date().toISOString()
+        };
+        homework.push(hw);
+        saveData();
+        renderHomework();
+        updateStats();
+        closeModal('homeworkModal');
+        document.getElementById('homeworkForm').reset();
+        scheduleNotifications();
+    }
+
+    function renderHomework(filter = 'all') {
+        const list = document.getElementById('homeworkList');
+        let filtered = [...homework];
+        const today = new Date();
+        today.setHours(0,0,0,0);
+
+        if (filter === 'today') {
+            filtered = homework.filter(h => new Date(h.dueDate).setHours(0,0,0,0) === today.getTime() && !h.completed);
+        } else if (filter === 'upcoming') {
+            filtered = homework.filter(h => new Date(h.dueDate) > today && !h.completed);
+        } else if (filter === 'completed') {
+            filtered = homework.filter(h => h.completed);
+        }
+
+        if (filtered.length === 0) {
+            list.innerHTML = '<div class="empty-state"><i class="fas fa-book-open"></i><h3>Ù„Ø§ ØªÙˆØ¬Ø¯ ÙˆØ§Ø¬Ø¨Ø§Øª</h3></div>';
+            return;
+        }
+
+        list.innerHTML = filtered.map(hw => `
+            <div class="task-card ${hw.completed ? 'completed' : ''}">
+                <div class="task-checkbox ${hw.completed ? 'checked' : ''}" onclick="toggleHomework('${escapeHtml(hw.id)}')"></div>
+                <div class="task-info">
+                    <div class="task-title">${escapeHtml(hw.title)}</div>
+                    <div class="task-meta">
+                        <span><i class="fas fa-book"></i> ${escapeHtml(hw.subject)}</span>
+                        <span><i class="fas fa-calendar"></i> ${formatDate(hw.dueDate)}</span>
+                        <span class="priority-badge priority-${hw.priority}">${getPriorityLabel(hw.priority)}</span>
+                    </div>
+                </div>
+                <div class="task-actions">
+                    <button onclick="deleteHomework('${escapeHtml(hw.id)}')"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    window.toggleHomework = function(id) {
+        const hw = homework.find(h => h.id === id);
+        if (hw) {
+            hw.completed = !hw.completed;
+            if (hw.completed) {
+                gamification.totalCompletedHW++;
+                addPoints('homework_completed');
+                markDayActive();
+                markActivity();
+            }
+            saveData();
+            renderHomework();
+            updateStats();
+            initParentDashboard();
+            renderTodayChecklist();
+            updateTrackingStats();
+        }
+    };
+
+    window.deleteHomework = function(id) {
+        if (confirm('Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„ÙˆØ§Ø¬Ø¨ØŸ')) {
+            homework = homework.filter(h => h.id !== id);
+            saveData();
+            renderHomework();
+            updateStats();
+            initParentDashboard();
+        }
+    };
+
+    // Exams Management
+    function addExam(e) {
+        e.preventDefault();
+        const exam = {
+            id: generateId(),
+            name: document.getElementById('examName').value,
+            subject: document.getElementById('examSubject').value,
+            date: document.getElementById('examDate').value,
+            time: document.getElementById('examTime').value,
+            day: document.getElementById('examDay').value,
+            notes: document.getElementById('examNotes').value,
+            createdAt: new Date().toISOString()
+        };
+        exams.push(exam);
+        addPoints('exam_added');
+        markDayActive();
+        saveData();
+        renderExams();
+        updateStats();
+        closeModal('examModal');
+        document.getElementById('examForm').reset();
+        scheduleNotifications();
+    }
+
+    function renderExams() {
+        const list = document.getElementById('examsList');
+        if (exams.length === 0) {
+            list.innerHTML = '<div class="empty-state"><i class="fas fa-file-alt"></i><h3>Ù„Ø§ ØªÙˆØ¬Ø¯ Ø§Ù…ØªØ­Ø§Ù†Ø§Øª</h3></div>';
+            return;
+        }
+        list.innerHTML = exams.map(exam => `
+            <div class="task-card">
+                <div class="timeline-icon exam"><i class="fas fa-file-alt"></i></div>
+                <div class="task-info">
+                    <div class="task-title">${escapeHtml(exam.name)}</div>
+                    <div class="task-meta">
+                        <span><i class="fas fa-book"></i> ${escapeHtml(exam.subject)}</span>
+                        <span><i class="fas fa-calendar"></i> ${formatDate(exam.date)}</span>
+                        <span><i class="fas fa-clock"></i> ${formatTime12(exam.time)}</span>
+                    </div>
+                </div>
+                <div class="task-actions">
+                    <button onclick="deleteExam('${escapeHtml(exam.id)}')"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    window.deleteExam = function(id) {
+        if (confirm('Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†ØŸ')) {
+            exams = exams.filter(e => e.id !== id);
+            saveData();
+            renderExams();
+            updateStats();
+        }
+    };
+
+    // Classes Management
+    function addClass(e) {
+        e.preventDefault();
+        const cls = {
+            id: generateId(),
+            name: document.getElementById('className').value,
+            duration: parseInt(document.getElementById('classDuration').value) || 45,
+            priority: document.getElementById('classPriority').value,
+            color: document.querySelector('input[name="classColor"]:checked').value,
+            notes: document.getElementById('classNotes').value,
+            date: new Date().toISOString().split('T')[0]
+        };
+        classes.push(cls);
+        addPoints('subject_added');
+        markActivity();
+        saveData();
+        renderClasses();
+        updateSubjectsSummary();
+        closeModal('classModal');
+        document.getElementById('classForm').reset();
+    }
+
+    function renderClasses() {
+        const grid = document.getElementById('classesGrid');
+        const today = new Date().toISOString().split('T')[0];
+        const todayClasses = classes.filter(c => c.date === today);
+
+        if (todayClasses.length === 0) {
+            grid.innerHTML = '<div class="empty-state"><i class="fas fa-book-reader"></i><h3>Ù„Ù… ØªØ¶Ù Ù…ÙˆØ§Ø¯ Ø§Ù„ÙŠÙˆÙ… Ø¨Ø¹Ø¯</h3></div>';
+            return;
+        }
+
+        grid.innerHTML = todayClasses.map(cls => `
+            <div class="class-card">
+                <div class="class-card-color" style="background: ${isValidColor(cls.color) ? cls.color : 'var(--primary)'}"></div>
+                <div class="class-card-title">${escapeHtml(cls.name)}</div>
+                <div class="class-card-info">
+                    <span><i class="fas fa-clock"></i> ${cls.duration} Ø¯Ù‚ÙŠÙ‚Ø©</span>
+                </div>
+                <div class="class-card-actions">
+                    <button onclick="deleteClass('${escapeHtml(cls.id)}')"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function updateSubjectsSummary() {
+        const today = new Date().toISOString().split('T')[0];
+        const todayClasses = classes.filter(c => c.date === today);
+        const totalMinutes = todayClasses.reduce((sum, c) => sum + c.duration, 0);
+        var el;
+        if (el = document.getElementById('subjectsCount')) el.textContent = todayClasses.length;
+        if (el = document.getElementById('estimatedStudyTime')) el.textContent = totalMinutes;
+    }
+
+    window.deleteClass = function(id) {
+        if (confirm('Ø­Ø°Ù Ø§Ù„Ù…Ø§Ø¯Ø©ØŸ')) {
+            classes = classes.filter(c => c.id !== id);
+            saveData();
+            renderClasses();
+            updateSubjectsSummary();
+        }
+    };
+
+    // Calendar
+    function renderCalendar() {
+        const year = calendarDate.getFullYear();
+        const month = calendarDate.getMonth();
+        const monthNames = ['ÙŠÙ†Ø§ÙŠØ±', 'ÙØ¨Ø±Ø§ÙŠØ±', 'Ù…Ø§Ø±Ø³', 'Ø£Ø¨Ø±ÙŠÙ„', 'Ù…Ø§ÙŠÙˆ', 'ÙŠÙˆÙ†ÙŠÙˆ', 'ÙŠÙˆÙ„ÙŠÙˆ', 'Ø£ØºØ³Ø·Ø³', 'Ø³Ø¨ØªÙ…Ø¨Ø±', 'Ø£ÙƒØªÙˆØ¨Ø±', 'Ù†ÙˆÙÙ…Ø¨Ø±', 'Ø¯ÙŠØ³Ù…Ø¨Ø±'];
+        
+        const calTitle = document.getElementById('calendarTitle');
+        const calBody = document.getElementById('calendarBody');
+        if (!calTitle || !calBody) return;
+
+        calTitle.textContent = monthNames[month] + ' ' + year;
+        const firstDay = new Date(year, month, 1).getDay();
+        const firstDayOffset = firstDay;
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        
+        let html = '';
+        for (let i = 0; i < firstDayOffset; i++) {
+            html += '<div class="calendar-day other-month"></div>';
+        }
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const isToday = new Date().toISOString().split('T')[0] === dateStr;
+            html += `<div class="calendar-day ${isToday ? 'today' : ''}" onclick="showDayEvents('${dateStr}')">${day}</div>`;
+        }
+        
+        calBody.innerHTML = html;
+    }
+
+    window.showDayEvents = function(dateStr) {
+        const events = [];
+        homework.filter(h => h.dueDate === dateStr).forEach(h => events.push({ title: h.title, desc: 'ÙˆØ§Ø¬Ø¨: ' + h.subject }));
+        exams.filter(e => e.date === dateStr).forEach(e => events.push({ title: e.name, desc: 'Ø§Ù…ØªØ­Ø§Ù†: ' + e.subject }));
+        
+        const list = document.getElementById('eventsList');
+        if (!list) return;
+        if (events.length === 0) {
+            list.innerHTML = '<div class="empty-state-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø£Ø­Ø¯Ø§Ø« Ù„Ù‡Ø°Ø§ Ø§Ù„ÙŠÙˆÙ…</div>';
+            return;
+        }
+        list.innerHTML = events.map(e => `
+            <div class="event-item">
+                <div class="event-title">${escapeHtml(e.title)}</div>
+                <div class="event-type">${escapeHtml(e.desc)}</div>
+            </div>
+        `).join('');
+    };
+
+    // Pomodoro Timer
+    function startPomodoro() {
+        if (pomoState === 'running') return;
+        pomoState = 'running';
+        updatePomodoroControls();
+        pomoTimer = setInterval(() => {
+            if (pomoTimeLeft > 0) {
+                pomoTimeLeft--;
+                updatePomodoroDisplay();
+            } else {
+                finishPomodoroRound();
+            }
+        }, 1000);
+    }
+
+    function pausePomodoro() {
+        pomoState = 'paused';
+        clearInterval(pomoTimer);
+        updatePomodoroControls();
+    }
+
+    function resetPomodoro() {
+        pomoState = 'idle';
+        clearInterval(pomoTimer);
+        const mins = pomoMode === 'work' ? pomodoro.settings.workMinutes : (pomoBreakType === 'long' ? pomodoro.settings.longBreakMinutes : pomodoro.settings.shortBreakMinutes);
+        pomoTimeLeft = mins * 60;
+        pomoTotalTime = pomoTimeLeft;
+        updatePomodoroDisplay();
+        updatePomodoroControls();
+    }
+
+    function skipPomodoro() {
+        resetPomodoro();
+    }
+
+    function finishPomodoroRound() {
+        clearInterval(pomoTimer);
+        pomoState = 'idle';
+        
+        if (pomoMode === 'work') {
+            pomoRoundsDone++;
+            pomodoro.todayStats.completedSessions++;
+            pomodoro.todayStats.totalMinutes += pomodoro.settings.workMinutes;
+            pomodoro.todayStats.currentStreak++;
+            gamification.totalPomodoroSessions++;
+            addPoints('pomodoro_completed');
+            markDayActive();
+            markActivity();
+            
+            pomodoro.todayStats.history.push({
+                time: formatTime12(new Date().toTimeString().slice(0, 5)),
+                duration: pomodoro.settings.workMinutes,
+                mode: 'work'
+            });
+            
+            if (pomoRoundsDone % pomodoro.settings.roundsBeforeLong === 0) {
+                pomoMode = 'break';
+                pomoBreakType = 'long';
+                pomoTimeLeft = pomodoro.settings.longBreakMinutes * 60;
+            } else {
+                pomoMode = 'break';
+                pomoBreakType = 'short';
+                pomoTimeLeft = pomodoro.settings.shortBreakMinutes * 60;
+            }
+        } else {
+            pomoMode = 'work';
+            pomoTimeLeft = pomodoro.settings.workMinutes * 60;
+        }
+        
+        pomoTotalTime = pomoTimeLeft;
+        saveData();
+        updatePomodoroDisplay();
+        updatePomodoroControls();
+        renderPomodoroStats();
+        renderPomodoroHistory();
+
+        const nextTab = pomoMode === 'work' ? 'work' : (pomoBreakType === 'long' ? 'long' : 'short');
+        setActivePomoTab(nextTab);
+
+        if ('Notification' in window && Notification.permission === 'granted') {
+            const label = nextTab === 'work' ? 'Ø§Ù„Ù…Ø°Ø§ÙƒØ±Ø©' : (nextTab === 'long' ? 'Ø§Ø³ØªØ±Ø§Ø­Ø© Ø·ÙˆÙŠÙ„Ø©' : 'Ø§Ø³ØªØ±Ø§Ø­Ø© Ù‚ØµÙŠØ±Ø©');
+            new Notification('Ø¨ÙˆÙ…ÙˆØ¯ÙˆØ±Ùˆ', { body: 'Ø§Ù†ØªÙ‡Øª Ø§Ù„Ø¬ÙˆÙ„Ø©! ÙˆÙ‚Øª ' + label });
+        }
+    }
+
+    function initPomodoroDisplay() {
+        updatePomodoroDisplay();
+    }
+
+    function updatePomodoroDisplay() {
+        const mins = Math.floor(pomoTimeLeft / 60);
+        const secs = pomoTimeLeft % 60;
+        var el;
+        if (el = document.getElementById('timerMinutes')) el.textContent = String(mins).padStart(2, '0');
+        if (el = document.getElementById('timerSeconds')) el.textContent = String(secs).padStart(2, '0');
+
+        const labelEl = document.getElementById('timerLabel');
+        if (labelEl) {
+            const labels = { work: 'Ù…Ø°Ø§ÙƒØ±Ø©', break: pomoBreakType === 'long' ? 'Ø§Ø³ØªØ±Ø§Ø­Ø© Ø·ÙˆÙŠÙ„Ø©' : 'Ø§Ø³ØªØ±Ø§Ø­Ø© Ù‚ØµÙŠØ±Ø©' };
+            labelEl.textContent = labels[pomoMode] || 'Ù…Ø°Ø§ÙƒØ±Ø©';
+        }
+
+        const circle = document.getElementById('circleProgress');
+        if (circle) {
+            const circumference = 2 * Math.PI * 90;
+            const offset = circumference - (pomoTimeLeft / pomoTotalTime) * circumference;
+            circle.style.strokeDasharray = `${circumference}`;
+            circle.style.strokeDashoffset = `${offset}`;
+        }
+    }
+
+    function updatePomodoroControls() {
+        const startBtn = document.getElementById('pomoStartBtn');
+        const pauseBtn = document.getElementById('pomoPauseBtn');
+        if (!startBtn || !pauseBtn) return;
+        if (pomoState === 'running') {
+            startBtn.style.display = 'none';
+            pauseBtn.style.display = 'inline-block';
+        } else {
+            startBtn.style.display = 'inline-block';
+            pauseBtn.style.display = 'none';
+        }
+    }
+
+    function setActivePomoTab(mode) {
+        document.querySelectorAll('.pomo-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.mode === mode);
+        });
+    }
+
+    function renderPomodoroStats() {
+        var el;
+        if (el = document.getElementById('pomoSessions')) el.textContent = pomodoro.todayStats.completedSessions;
+        if (el = document.getElementById('pomoTotalMin')) el.textContent = pomodoro.todayStats.totalMinutes;
+        if (el = document.getElementById('pomoStreak')) el.textContent = gamification.streak;
+    }
+
+    function renderPomodoroHistory() {
+        const list = document.getElementById('pomoHistoryList');
+        if (!list) return;
+        if (!pomodoro.todayStats.history || pomodoro.todayStats.history.length === 0) {
+            list.innerHTML = '<div class="empty-state-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¬ÙˆÙ„Ø§Øª Ù…Ø³Ø¬Ù„Ø© Ø¨Ø¹Ø¯</div>';
+            return;
+        }
+        list.innerHTML = pomodoro.todayStats.history.map(h => `
+            <div class="pomo-history-item">
+                <span class="pomo-hist-time">${h.time}</span>
+                <span class="pomo-hist-mode">${h.mode === 'work' ? 'Ù…Ø°Ø§ÙƒØ±Ø©' : 'Ø§Ø³ØªØ±Ø§Ø­Ø©'}</span>
+                <span class="pomo-hist-dur">${h.duration} Ø¯Ù‚ÙŠÙ‚Ø©</span>
+            </div>
+        `).join('');
+    }
+
+    // Gamification & Points
+    function addPoints(reason) {
+        const pointValues = {
+            homework_completed: 10,
+            homework_completed_high: 20,
+            exam_added: 5,
+            subject_added: 5,
+            schedule_generated: 15,
+            pomodoro_completed: 15,
+            timeblock_added: 5,
+            timeblock_completed: 10
+        };
+        const pts = pointValues[reason] || 5;
+        gamification.points += pts;
+        gamification.xp += pts;
+        
+        if (gamification.xp >= gamification.level * 100) {
+            gamification.level++;
+        }
+
+        gamification.pointsLog.unshift({
+            reason: reason,
+            points: pts,
+            date: new Date().toISOString()
+        });
+
+        checkBadges();
+        saveData();
+        renderAchievements();
+        renderPointsLog();
+    }
+
+    function markDayActive() {
+        const today = new Date().toISOString().split('T')[0];
+        if (gamification.lastActiveDate !== today) {
+            gamification.streak++;
+            gamification.lastActiveDate = today;
+            saveData();
+        }
+    }
+
+    function updateStreak() {
+        const today = new Date();
+        if (gamification.lastActiveDate) {
+            const lastActive = new Date(gamification.lastActiveDate);
+            const diffDays = Math.floor((today - lastActive) / (1000 * 60 * 60 * 24));
+            if (diffDays > 1) {
+                gamification.streak = 0;
+            }
+        }
+    }
+
+    function checkBadges() {
+        if (gamification.totalCompletedHW >= 1) unlockBadge('first_homework');
+        if (gamification.totalCompletedHW >= 5) unlockBadge('five_homework');
+        if (gamification.totalCompletedHW >= 10) unlockBadge('ten_homework');
+        if (exams.length >= 1) unlockBadge('first_exam');
+        if (gamification.totalPomodoroSessions >= 5) unlockBadge('pomodoro_5');
+        if (gamification.totalPomodoroSessions >= 20) unlockBadge('pomodoro_20');
+        if (gamification.streak >= 3) unlockBadge('streak_3');
+        if (gamification.streak >= 7) unlockBadge('streak_7');
+        if (gamification.level >= 5) unlockBadge('level_5');
+        if (gamification.level >= 10) unlockBadge('level_10');
+    }
+
+    function unlockBadge(badgeKey) {
+        if (!gamification.badges.includes(badgeKey)) {
+            gamification.badges.push(badgeKey);
+            saveData();
+            renderBadges();
+        }
+    }
+
+    function renderAchievements() {
+        var el;
+        if (el = document.getElementById('totalPoints')) el.textContent = gamification.points;
+        if (el = document.getElementById('levelNumber')) el.textContent = gamification.level;
+        if (el = document.getElementById('currentXP')) el.textContent = gamification.xp;
+        if (el = document.getElementById('nextLevelXP')) el.textContent = gamification.level * 100;
+
+        const levelTitles = ['Ù…Ø¨ØªØ¯Ø¦', 'Ù…ØªÙˆØ³Ø·', 'Ù…ØªÙ…Ø±Ø³', 'Ø®Ø¨ÙŠØ±', 'Ø³ÙŠØ¯', 'Ø£Ø³Ø·ÙˆØ±ÙŠ'];
+        const titleIndex = Math.min(Math.floor(gamification.level / 3), levelTitles.length - 1);
+        const titleEl = document.getElementById('levelTitle');
+        if (titleEl) titleEl.textContent = levelTitles[titleIndex];
+
+        const xpPercent = Math.min(100, (gamification.xp / (gamification.level * 100)) * 100);
+        if (el = document.getElementById('xpFill')) el.style.width = xpPercent + '%';
+    }
+
+    function renderPointsLog() {
+        const list = document.getElementById('pointsLogList');
+        if (!list) return;
+        if (!gamification.pointsLog || gamification.pointsLog.length === 0) {
+            list.innerHTML = '<div class="empty-state-sm">Ù„Ù… ØªÙƒØ³Ø¨ Ù†Ù‚Ø§Ø·Ø§Ù‹ Ø¨Ø¹Ø¯</div>';
+            return;
+        }
+        list.innerHTML = gamification.pointsLog.slice(0, 5).map(log => `
+            <div class="points-log-item">
+                <span class="points-log-points">+${log.points} Ù†Ù‚Ø·Ø©</span>
+                <span class="points-log-reason">${escapeHtml(log.reason)}</span>
+                <small class="points-log-date">${new Date(log.date).toLocaleDateString('ar-EG')}</small>
+            </div>
+        `).join('');
+    }
+
+    function renderBadges() {
+        document.querySelectorAll('.badge-item').forEach(el => {
+            const b = el.dataset.badge;
+            if (gamification.badges.includes(b)) {
+                el.classList.remove('locked');
+                el.classList.add('unlocked');
+            }
+        });
+    }
+
+    // Parent Dashboard
+    function initParentDashboard() {
+        if (!parentCode) generateParentCode();
+        document.getElementById('parentCode').textContent = parentCode;
+        updateParentStats();
+        updateHomeworkProgress();
+        updateWeeklyChart();
+        updateParentExams();
+        updateParentSchedule();
+        renderExamsTomorrow();
+    }
+
+    function updateWeeklyChart() {
+        const today = new Date();
+        const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        const bars = document.querySelectorAll('.chart-bar');
+        
+        bars.forEach((bar, index) => {
+            const dayOffset = (today.getDay() - index + 7) % 7;
+            const date = new Date(today);
+            date.setDate(date.getDate() - dayOffset);
+            const dateStr = date.toISOString().split('T')[0];
+            const dayClasses = classes.filter(c => c.date === dateStr);
+            const totalMin = dayClasses.reduce((sum, c) => sum + (c.duration || 0), 0);
+            const maxMin = 300;
+            const height = Math.min(100, (totalMin / maxMin) * 100);
+            bar.style.height = height + '%';
+        });
+    }
+
+    function updateParentExams() {
+        const list = document.getElementById('parentExamsList');
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const upcoming = exams.filter(e => new Date(e.date) >= today).sort((a, b) => new Date(a.date) - new Date(b.date));
+        
+        if (upcoming.length === 0) {
+            list.innerHTML = '<div class="empty-state-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø§Ù…ØªØ­Ø§Ù†Ø§Øª Ù‚Ø§Ø¯Ù…Ø©</div>';
+            return;
+        }
+        list.innerHTML = upcoming.map(exam => `
+            <div class="parent-exam-item">
+                <span class="parent-exam-name">${escapeHtml(exam.name)}</span>
+                <span class="parent-exam-subject">${escapeHtml(exam.subject)}</span>
+                <span class="parent-exam-date">${formatDate(exam.date)}</span>
+            </div>
+        `).join('');
+    }
+
+    function updateParentSchedule() {
+        const list = document.getElementById('parentSchedule');
+        if (dailySchedule.length === 0) {
+            list.innerHTML = '<div class="empty-state-sm">Ù„Ù… ÙŠØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ø¯ÙˆÙ„ Ø¨Ø¹Ø¯</div>';
+            return;
+        }
+        list.innerHTML = dailySchedule.slice(0, 8).map(item => `
+            <div class="parent-schedule-item">
+                <span class="parent-sch-time">${formatTime12(item.time)}</span>
+                <span class="parent-sch-activity">${escapeHtml(item.activity)}</span>
+            </div>
+        `).join('');
+    }
+
+    function generateParentCode() {
+        parentCode = 'BTS-' + Math.floor(100000 + Math.random() * 900000);
+        localStorage.setItem('bts_parent_code_' + currentUser.id, parentCode);
+        const codeEl = document.getElementById('parentCode');
+        if (codeEl) codeEl.textContent = parentCode;
+    }
+
+    function updateParentStats() {
+        const completed = homework.filter(h => h.completed).length;
+        const pending = homework.filter(h => !h.completed).length;
+        
+        var el;
+        if (el = document.getElementById('parentCompletedHW')) el.textContent = completed;
+        if (el = document.getElementById('parentPendingHW')) el.textContent = pending;
+        if (el = document.getElementById('parentStudyHours')) el.textContent = (pomodoro.todayStats.totalMinutes / 60).toFixed(1);
+        if (el = document.getElementById('parentPoints')) el.textContent = gamification.points;
+    }
+
+    function updateHomeworkProgress() {
+        const total = homework.length;
+        const completed = homework.filter(h => h.completed).length;
+        const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+        
+        const fill = document.getElementById('hwProgressFill');
+        const text = document.getElementById('hwProgressText');
+        if (fill) fill.style.width = pct + '%';
+        if (text) text.textContent = pct + '%';
+
+        updateParentExams();
+        updateParentSchedule();
+        renderExamsTomorrow();
+    }
+
+    function renderExamsTomorrow() {
+        const list = document.getElementById('examsTomorrowList');
+        if (!list) return;
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        const tomorrowExams = exams.filter(e => e.date === tomorrowStr);
+        if (tomorrowExams.length === 0) {
+            list.innerHTML = '<div class="empty-state-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø§Ù…ØªØ­Ø§Ù†Ø§Øª ØºØ¯Ø§Ù‹</div>';
+            return;
+        }
+        list.innerHTML = tomorrowExams.map(e => `
+            <div class="task-card">
+                <div class="timeline-icon exam"><i class="fas fa-file-alt"></i></div>
+                <div class="task-info">
+                    <div class="task-title">${escapeHtml(e.name)}</div>
+                    <div class="task-meta">
+                        <span><i class="fas fa-book"></i> ${escapeHtml(e.subject)}</span>
+                        <span><i class="fas fa-clock"></i> ${formatTime12(e.time)}</span>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Password & Security Extensions
+    function saveSettings() {
+        currentUser.settings = {
+            wakeUpTime: document.getElementById('wakeUpTime')?.value || '06:00',
+            sleepTime: document.getElementById('sleepTime')?.value || '22:00',
+            schoolStart: document.getElementById('schoolStart')?.value || '07:30',
+            schoolEnd: document.getElementById('schoolEnd')?.value || '14:00',
+            breakfastTime: document.getElementById('breakfastTime')?.value || '06:30',
+            lunchTime: document.getElementById('lunchTime')?.value || '14:30',
+            dinnerTime: document.getElementById('dinnerTime')?.value || '20:00',
+            exerciseTime: document.getElementById('exerciseTime')?.value || '16:00',
+            showerTime: document.getElementById('showerTime')?.value || '21:00'
+        };
+        
+        const users = JSON.parse(localStorage.getItem('bts_users') || '[]');
+        const userIndex = users.findIndex(u => u.id === currentUser.id);
+        if (userIndex !== -1) {
+            users[userIndex].settings = currentUser.settings;
+            localStorage.setItem('bts_users', JSON.stringify(users));
+        }
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+    }
+
+    function generateSalt() {
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function hashPassword(password, salt) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(salt + password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function verifyPassword(password, userRecord) {
+        if (userRecord.salt && userRecord.passwordHash) {
+            const hash = await hashPassword(password, userRecord.salt);
+            return hash === userRecord.passwordHash;
+        }
+        return userRecord.password === password;
+    }
+
+    async function changePassword(e) {
+        e.preventDefault();
+        const currentPassword = document.getElementById('currentPassword').value;
+        const newPassword = document.getElementById('newPassword').value;
+        const confirmPassword = document.getElementById('confirmNewPassword').value;
+        const errorEl = document.getElementById('passwordError');
+        
+        errorEl.textContent = '';
+        
+        if (newPassword.length < 6) {
+            errorEl.textContent = 'ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© 6 Ø£Ø­Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„.';
+            return;
+        }
+        if (newPassword !== confirmPassword) {
+            errorEl.textContent = 'ÙƒÙ„Ù…ØªØ§ Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯ØªØ§Ù† ØºÙŠØ± Ù…ØªØ·Ø§Ø¨Ù‚ØªÙŠÙ†.';
+            return;
+        }
+
+        const users = JSON.parse(localStorage.getItem('bts_users') || '[]');
+        const userIndex = users.findIndex(u => u.id === currentUser.id);
+        if (userIndex === -1) {
+            errorEl.textContent = 'Ø­Ø¯Ø« Ø®Ø·Ø£ ØºÙŠØ± Ù…ØªÙˆÙ‚Ø¹.';
+            return;
+        }
+
+        try {
+            const isValid = await verifyPassword(currentPassword, users[userIndex]);
+            if (!isValid) {
+                errorEl.textContent = 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø­Ø§Ù„ÙŠØ© ØºÙŠØ± ØµØ­ÙŠØ­Ø©.';
+                return;
+            }
+            const salt = generateSalt();
+            const passwordHash = await hashPassword(newPassword, salt);
+            
+            users[userIndex].salt = salt;
+            users[userIndex].passwordHash = passwordHash;
+            delete users[userIndex].password;
+            
+            localStorage.setItem('bts_users', JSON.stringify(users));
+            alert('ØªÙ… ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø¨Ù†Ø¬Ø§Ø­!');
+            document.getElementById('changePasswordForm').reset();
+        } catch (err) {
+            errorEl.textContent = 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±.';
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('currentUser');
+        window.location.href = 'index.html';
+    }
+
+    // ========================================
+    // Theme Toggle System
+    // ========================================
+    function initTheme() {
+        if (currentTheme === 'auto' || !currentTheme) {
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            currentTheme = prefersDark ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        const toggle = document.getElementById('themeToggle');
+        if (toggle) {
+            toggle.addEventListener('click', toggleTheme);
+        }
+    }
+
+    function toggleTheme() {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        saveData();
+        showToast('ØªÙ… ØªØ¨Ø¯ÙŠÙ„ Ø§Ù„Ø³Ù…Ø©', currentTheme === 'dark' ? 'Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù…Ø¸Ù„Ù…' : 'Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„ÙØ§ØªØ­', 'info');
+    }
+
+    // ========================================
+    // Voice Control System (Web Speech API)
+    // ========================================
+    function initVoiceControl() {
+        const voiceBtn = document.getElementById('voiceBtn');
+        if (!voiceBtn) return;
+
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            voiceBtn.title = 'Ø§Ù„Ù…ØªØµÙØ­ Ù„Ø§ ÙŠØ¯Ø¹Ù… Ø§Ù„ØªØ­ÙƒÙ… Ø§Ù„ØµÙˆØªÙŠ';
+            voiceBtn.style.opacity = '0.5';
+            return;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.lang = 'ar-SA';
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = function() {
+            isListening = true;
+            voiceBtn.classList.add('listening');
+            var vf = document.getElementById('voiceFeedback');
+            if (vf) vf.classList.add('active');
+        };
+
+        recognition.onend = function() {
+            isListening = false;
+            voiceBtn.classList.remove('listening');
+            setTimeout(function() {
+                var vf = document.getElementById('voiceFeedback');
+                var vt = document.getElementById('voiceTranscript');
+                if (vf) vf.classList.remove('active');
+                if (vt) vt.classList.remove('active');
+            }, 2000);
+        };
+
+        recognition.onresult = function(event) {
+            let transcript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+            var vt = document.getElementById('voiceTranscript');
+            if (vt) {
+                vt.textContent = transcript;
+                vt.classList.add('active');
+            }
+
+            if (event.results[event.resultIndex].isFinal) {
+                processVoiceCommand(transcript.trim().toLowerCase());
+            }
+        };
+
+        recognition.onerror = function(event) {
+            isListening = false;
+            voiceBtn.classList.remove('listening');
+            var vf = document.getElementById('voiceFeedback');
+            if (vf) vf.classList.remove('active');
+            if (event.error !== 'no-speech') {
+                showToast('Ø®Ø·Ø£ ØµÙˆØªÙŠ', 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ø§Ø³ØªÙ…Ø§Ø¹', 'danger');
+            }
+        };
+
+        voiceBtn.addEventListener('click', toggleVoice);
+    }
+
+    function toggleVoice() {
+        if (!recognition) return;
+        if (isListening) {
+            recognition.stop();
+        } else {
+            try {
+                recognition.start();
+            } catch(e) {
+                recognition.stop();
+                setTimeout(function() { recognition.start(); }, 100);
+            }
+        }
+    }
+
+    function processVoiceCommand(command) {
+        if (command.includes('Ø¬Ø¯ÙˆÙ„') || command.includes('ØªÙ†Ø¸ÙŠÙ…') || command.includes('Ø®Ø·Ø©')) {
+            generateDailySchedule();
+            showToast('ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¬Ø¯ÙˆÙ„', 'ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ø¯ÙˆÙ„ ÙŠÙˆÙ…Ùƒ Ø¨Ù†Ø¬Ø§Ø­', 'success');
+        } else if (command.includes('ÙˆØ§Ø¬Ø¨') || command.includes('ÙˆØ§Ø¬Ø¨Ø§Øª')) {
+            navigateTo('homework');
+            showToast('Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª', 'ØªÙ… Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„ØµÙØ­Ø© Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª', 'info');
+        } else if (command.includes('Ø§Ù…ØªØ­Ø§Ù†') || command.includes('Ø§Ø®ØªØ¨Ø§Ø±')) {
+            navigateTo('exams');
+            showToast('Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª', 'ØªÙ… Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„ØµÙØ­Ø© Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª', 'info');
+        } else if (command.includes('Ø¥Ø¶Ø§ÙØ© ÙˆØ§Ø¬Ø¨')) {
+            var hwModal = document.getElementById('homeworkModal');
+            if (hwModal) hwModal.classList.add('active');
+        } else if (command.includes('Ø¥Ø¶Ø§ÙØ© Ø§Ù…ØªØ­Ø§Ù†')) {
+            var exModal = document.getElementById('examModal');
+            if (exModal) exModal.classList.add('active');
+        } else if (command.includes('Ø¥Ø¶Ø§ÙØ© Ù…Ø§Ø¯Ø©') || command.includes('Ù…Ø§Ø¯Ø© Ø¬Ø¯ÙŠØ¯Ø©')) {
+            var clModal = document.getElementById('classModal');
+            if (clModal) clModal.classList.add('active');
+        } else if (command.includes('Ù…Ø¤Ù‚Øª') || command.includes('Ø¨ÙˆÙ…ÙˆØ¯ÙˆØ±Ùˆ') || command.includes(' Timer')) {
+            navigateTo('pomodoro');
+        } else if (command.includes('Ø¥Ù†Ø¬Ø§Ø²') || command.includes('Ù†Ù‚Ø§Ø·') || command.includes('Ø´Ø§Ø±Ø§Øª')) {
+            navigateTo('achievements');
+        } else if (command.includes('ØªØªØ¨Ø¹') || command.includes('Ù…Ù‡Ø§Ù…')) {
+            navigateTo('tasktracking');
+        } else if (command.includes('Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ…') || command.includes('Ø±Ø¦ÙŠØ³ÙŠØ©')) {
+            navigateTo('dashboard');
+        } else if (command.includes('Ø¥Ø´Ø¹Ø§Ø±Ø§Øª') || command.includes('ØªÙ†Ø¨ÙŠÙ‡')) {
+            navigateTo('settings');
+        } else if (command.includes('ØªØµØ¯ÙŠØ±')) {
+            exportData();
+        } else if (command.includes('Ù…ÙˆØ§Ø¯ Ø§Ù„ÙŠÙˆÙ…') || command.includes('Ø­ØµØµ')) {
+            navigateTo('classes');
+        } else if (command.includes('ØªÙ‚ÙˆÙŠÙ…')) {
+            navigateTo('calendar');
+        } else {
+            var chatInput = document.getElementById('chatInput');
+            if (chatInput) {
+                chatInput.value = command;
+                sendChatMessage();
+            }
+        }
+    }
+
+    // ========================================
+    // Push Notifications System
+    // ========================================
+    function initNotificationSettings() {
+        const hwToggle = document.getElementById('notifHomework');
+        const examToggle = document.getElementById('notifExams');
+        const schedToggle = document.getElementById('notifSchedule');
+        const dailyToggle = document.getElementById('notifDailyReminder');
+
+        if (hwToggle) {
+            hwToggle.checked = notificationSettings.homework;
+            hwToggle.addEventListener('change', function() {
+                notificationSettings.homework = this.checked;
+                saveData();
+            });
+        }
+        if (examToggle) {
+            examToggle.checked = notificationSettings.exams;
+            examToggle.addEventListener('change', function() {
+                notificationSettings.exams = this.checked;
+                saveData();
+            });
+        }
+        if (schedToggle) {
+            schedToggle.checked = notificationSettings.schedule;
+            schedToggle.addEventListener('change', function() {
+                notificationSettings.schedule = this.checked;
+                saveData();
+            });
+        }
+        if (dailyToggle) {
+            dailyToggle.checked = notificationSettings.dailyReminder;
+            dailyToggle.addEventListener('change', function() {
+                notificationSettings.dailyReminder = this.checked;
+                saveData();
+            });
+        }
+    }
+
+    function scheduleNotifications() {
+        if (!('Notification' in window)) return;
+
+        if (Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
+        setInterval(function() {
+            checkHomeworkNotifications();
+            checkExamNotifications();
+            checkScheduleNotifications();
+            checkDailyReminder();
+        }, 60000);
+
+        checkHomeworkNotifications();
+        checkExamNotifications();
+        checkDailyReminder();
+    }
+
+    function checkDailyReminder() {
+        if (!notificationSettings.dailyReminder) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const today = new Date().toISOString().split('T')[0];
+        const todayKey = 'bts_dailyReminderSent_' + currentUser.id;
+        if (localStorage.getItem(todayKey) === today) return;
+        const hour = new Date().getHours();
+        if (hour < 9 || hour > 21) return;
+        localStorage.setItem(todayKey, today);
+        new Notification('ØªØ°ÙƒÙŠØ± ÙŠÙˆÙ…ÙŠ!', {
+            body: 'Ù„Ø§ ØªÙ†Ø³ÙŽ Ù…ØªØ§Ø¨Ø¹Ø© Ø¬Ø¯ÙˆÙ„Ùƒ Ø§Ù„ÙŠÙˆÙ…ÙŠ. Ø£Ù†Øª ØªÙ‚Ø¯Ù… Ø±Ø§Ø¦Ø¹Ø§Ù‹!',
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">ðŸ””</text></svg>'
+        });
+        showToast('ØªØ°ÙƒÙŠØ±', 'ØªØ°ÙƒÙŠØ± ÙŠÙˆÙ…ÙŠ: Ù„Ø§ ØªÙ†Ø³ÙŽ Ù…ØªØ§Ø¨Ø¹Ø© Ø¬Ø¯ÙˆÙ„Ùƒ!');
+    }
+
+    function checkHomeworkNotifications() {
+        if (!notificationSettings.homework) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const today = new Date().toISOString().split('T')[0];
+        const dueToday = homework.filter(h => !h.completed && h.dueDate === today);
+        if (dueToday.length > 0 && Notification.permission === 'granted') {
+            new Notification('ÙˆØ§Ø¬Ø¨Ø§Øª Ù…Ø³ØªØ­Ù‚Ø© Ø§Ù„ÙŠÙˆÙ…!', {
+                body: 'Ù„Ø¯ÙŠÙƒ ' + dueToday.length + ' ÙˆØ§Ø¬Ø¨Ø§Øª Ù…Ø³ØªØ­Ù‚Ø© Ø§Ù„ÙŠÙˆÙ…',
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">ðŸ“š</text></svg>'
+            });
+        }
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        const dueTomorrow = homework.filter(h => !h.completed && h.dueDate === tomorrowStr);
+        if (dueTomorrow.length > 0 && Notification.permission === 'granted') {
+            new Notification('ÙˆØ§Ø¬Ø¨Ø§Øª Ù…Ø³ØªØ­Ù‚Ø© ØºØ¯Ø§Ù‹!', {
+                body: 'Ù„Ø¯ÙŠÙƒ ' + dueTomorrow.length + ' ÙˆØ§Ø¬Ø¨Ø§Øª Ù…Ø³ØªØ­Ù‚Ø© ØºØ¯Ø§Ù‹'
+            });
+        }
+    }
+
+    function checkExamNotifications() {
+        if (!notificationSettings.exams) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const today = new Date().toISOString().split('T')[0];
+        const todayExams = exams.filter(e => e.date === today);
+        if (todayExams.length > 0 && Notification.permission === 'granted') {
+            new Notification('Ø§Ù…ØªØ­Ø§Ù† Ø§Ù„ÙŠÙˆÙ…!', {
+                body: 'Ù„Ø¯ÙŠÙƒ ' + todayExams.length + ' Ø§Ù…ØªØ­Ø§Ù†Ø§Øª Ø§Ù„ÙŠÙˆÙ…: ' + todayExams.map(e => e.name).join(', ')
+            });
+        }
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        const tomorrowExams = exams.filter(e => e.date === tomorrowStr);
+        if (tomorrowExams.length > 0 && Notification.permission === 'granted') {
+            new Notification('Ø§Ù…ØªØ­Ø§Ù† ØºØ¯Ø§Ù‹!', {
+                body: 'Ù„Ø¯ÙŠÙƒ ' + tomorrowExams.length + ' Ø§Ù…ØªØ­Ø§Ù†Ø§Øª ØºØ¯Ø§Ù‹: ' + tomorrowExams.map(e => e.name).join(', ')
+            });
+        }
+    }
+
+    function checkScheduleNotifications() {
+        if (!notificationSettings.schedule || dailySchedule.length === 0) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const now = new Date();
+        const currentTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+        const currentMin = timeToMinutes(currentTime);
+
+        dailySchedule.forEach(function(item) {
+            const itemMin = timeToMinutes(item.time);
+            if (Math.abs(itemMin - currentMin) === 0 && Notification.permission === 'granted') {
+                new Notification('ØªØ°ÙƒÙŠØ± Ø¨Ø§Ù„Ø¬Ø¯ÙˆÙ„', { body: item.activity });
+            }
+        });
+    }
+
+    // ========================================
+    // Toast Notification System
+    // ========================================
+    function showToast(title, message, type) {
+        const toast = document.getElementById('notificationToast');
+        if (!toast) return;
+        const toastTitle = document.getElementById('toastTitle');
+        const toastMessage = document.getElementById('toastMessage');
+        const toastIcon = toast.querySelector('.toast-icon');
+
+        if (toastTitle) toastTitle.textContent = title;
+        if (toastMessage) toastMessage.textContent = message;
+        if (toastIcon) {
+            toastIcon.className = 'toast-icon ' + (type || 'info');
+            const icons = { success: 'fa-check-circle', warning: 'fa-exclamation-triangle', danger: 'fa-times-circle', info: 'fa-info-circle' };
+            toastIcon.innerHTML = '<i class="fas ' + (icons[type] || icons.info) + '"></i>';
+        }
+
+        toast.classList.remove('hidden');
+        clearTimeout(toast._timeout);
+        toast._timeout = setTimeout(function() { toast.classList.add('hidden'); }, 4000);
+
+        var closeBtn = document.getElementById('toastClose');
+        if (closeBtn) closeBtn.onclick = function() { toast.classList.add('hidden'); };
+    }
+
+    // ========================================
+    // Task Tracking System
+    // ========================================
+    function initTaskTracking() {
+        const form = document.getElementById('timeBlockForm');
+        if (form) {
+            form.addEventListener('submit', addTimeBlock);
+        }
+    }
+
+    function addTimeBlock(e) {
+        e.preventDefault();
+        const block = {
+            id: generateId(),
+            title: document.getElementById('tbTitle').value,
+            subject: document.getElementById('tbSubject').value,
+            startTime: document.getElementById('tbStartTime').value,
+            endTime: document.getElementById('tbEndTime').value,
+            priority: document.getElementById('tbPriority').value,
+            type: document.getElementById('tbType').value,
+            completed: false,
+            date: new Date().toISOString().split('T')[0],
+            createdAt: new Date().toISOString()
+        };
+        timeBlocks.push(block);
+        addPoints('timeblock_added');
+        saveData();
+        renderTimeBlocks();
+        renderTodayChecklist();
+        updateTrackingStats();
+        document.getElementById('timeBlockForm').reset();
+        showToast('ØªÙ…Øª Ø§Ù„Ø¥Ø¶Ø§ÙØ©', 'ØªÙ…Øª Ø¥Ø¶Ø§ÙØ© Ø¨Ù„ÙˆÙƒ Ø§Ù„ÙˆÙ‚Øª Ø¨Ù†Ø¬Ø§Ø­', 'success');
+    }
+
+    function renderTimeBlocks() {
+        const grid = document.getElementById('timeBlocksGrid');
+        if (!grid) return;
+        const today = new Date().toISOString().split('T')[0];
+        const todayBlocks = timeBlocks.filter(b => b.date === today);
+
+        if (todayBlocks.length === 0) {
+            grid.innerHTML = '<div class="empty-state-sm">Ù„Ù… ØªØ¶Ù Ø¨Ù„ÙˆÙƒØ§Øª ÙˆÙ‚Øª Ø¨Ø¹Ø¯</div>';
+            return;
+        }
+
+        const typeLabels = { study: 'Ù…Ø°Ø§ÙƒØ±Ø©', review: 'Ù…Ø±Ø§Ø¬Ø¹Ø©', homework: 'ÙˆØ§Ø¬Ø¨', project: 'Ù…Ø´Ø±ÙˆØ¹' };
+        const typeIcons = { study: 'book', review: 'redo', homework: 'book-open', project: 'project-diagram' };
+
+        grid.innerHTML = todayBlocks.sort(function(a, b) { return timeToMinutes(a.startTime) - timeToMinutes(b.startTime); }).map(function(block) {
+            return '<div class="time-block-item priority-' + block.priority + ' ' + (block.completed ? 'completed' : '') + '">' +
+                '<div class="time-block-time">' +
+                    '<div class="start-time">' + formatTime12(block.startTime) + '</div>' +
+                    '<div class="end-time">Ø¥Ù„Ù‰ ' + formatTime12(block.endTime) + '</div>' +
+                '</div>' +
+                '<div class="time-block-info">' +
+                    '<div class="time-block-title">' + escapeHtml(block.title) + '</div>' +
+                    '<div class="time-block-meta">' +
+                        '<span><i class="fas fa-book"></i> ' + escapeHtml(block.subject) + '</span>' +
+                        '<span><i class="fas fa-' + (typeIcons[block.type] || 'tag') + '"></i> ' + (typeLabels[block.type] || block.type) + '</span>' +
+                        '<span class="priority-badge priority-' + block.priority + '">' + getPriorityLabel(block.priority) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="task-actions">' +
+                    '<button onclick="toggleTimeBlock(\'' + escapeHtml(block.id) + '\')" title="' + (block.completed ? 'Ø¥Ù„ØºØ§Ø¡' : 'Ø¥ØªÙ…Ø§Ù…') + '"><i class="fas fa-' + (block.completed ? 'undo' : 'check') + '"></i></button>' +
+                    '<button onclick="deleteTimeBlock(\'' + escapeHtml(block.id) + '\')"><i class="fas fa-trash"></i></button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    window.toggleTimeBlock = function(id) {
+        const block = timeBlocks.find(function(b) { return b.id === id; });
+        if (block) {
+            block.completed = !block.completed;
+            if (block.completed) {
+                gamification.totalCompletedHW++;
+                addPoints('timeblock_completed');
+                markDayActive();
+            }
+            saveData();
+            renderTimeBlocks();
+            renderTodayChecklist();
+            updateTrackingStats();
+        }
+    };
+
+    window.deleteTimeBlock = function(id) {
+        if (confirm('Ø­Ø°Ù Ø¨Ù„ÙˆÙƒ Ø§Ù„ÙˆÙ‚ØªØŸ')) {
+            timeBlocks = timeBlocks.filter(function(b) { return b.id !== id; });
+            saveData();
+            renderTimeBlocks();
+            renderTodayChecklist();
+            updateTrackingStats();
+        }
+    };
+
+    function renderTodayChecklist() {
+        const container = document.getElementById('todayChecklist');
+        if (!container) return;
+        const today = new Date().toISOString().split('T')[0];
+        const todayBlocks = timeBlocks.filter(function(b) { return b.date === today; });
+
+        if (todayBlocks.length === 0) {
+            container.innerHTML = '<div class="empty-state-sm">Ø£Ø¶Ù Ø¨Ù„ÙˆÙƒØ§Øª ÙˆÙ‚Øª Ù„ØªØ¸Ù‡Ø± Ù…Ù‡Ø§Ù…Ùƒ Ù‡Ù†Ø§</div>';
+            return;
+        }
+
+        container.innerHTML = todayBlocks.map(function(block) {
+            return '<div class="checklist-item ' + (block.completed ? 'completed' : '') + '">' +
+                '<div class="checklist-check ' + (block.completed ? 'checked' : '') + '" onclick="toggleTimeBlock(\'' + escapeHtml(block.id) + '\')"></div>' +
+                '<span class="checklist-label">' + escapeHtml(block.title) + ' - ' + escapeHtml(block.subject) + '</span>' +
+                '<span class="checklist-time">' + formatTime12(block.startTime) + ' - ' + formatTime12(block.endTime) + '</span>' +
+            '</div>';
+        }).join('');
+
+        const achContainer = document.getElementById('achievementsChecklist');
+        if (achContainer) {
+            achContainer.innerHTML = container.innerHTML;
+        }
+    }
+
+    function renderWeeklyActivity() {
+        const grid = document.getElementById('weeklyActivityGrid');
+        const achGrid = document.getElementById('achievementsActivityGrid');
+        const studyGrid = document.getElementById('studyActivityGrid');
+        if (!grid && !achGrid && !studyGrid) return;
+
+        const dayLabels = ['Ø³Ø¨', 'Ø£Ø­', 'Ø¥Ø«', 'Ø«Ù„', 'Ø£Ø±', 'Ø®Ù…', 'Ø¬Ù…'];
+        const today = new Date();
+        let html = '';
+
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split('T')[0];
+            const dayActivity = dailyActivity[dateStr] || 0;
+            const level = dayActivity >= 4 ? 4 : dayActivity >= 3 ? 3 : dayActivity >= 2 ? 2 : dayActivity >= 1 ? 1 : 0;
+            const dayIndex = date.getDay();
+            const dayName = dayLabels[dayIndex];
+
+            html += '<div class="activity-day">' +
+                '<div class="activity-day-label">' + dayName + '</div>' +
+                '<div class="activity-dot active-' + level + '"></div>' +
+            '</div>';
+        }
+
+        if (grid) grid.innerHTML = html;
+        if (achGrid) achGrid.innerHTML = html;
+        if (studyGrid) studyGrid.innerHTML = html;
+    }
+
+    function updateTrackingStats() {
+        const today = new Date().toISOString().split('T')[0];
+        const todayBlocks = timeBlocks.filter(function(b) { return b.date === today; });
+        const completedBlocks = todayBlocks.filter(function(b) { return b.completed; });
+        const totalMinutes = todayBlocks.reduce(function(sum, b) {
+            return sum + (timeToMinutes(b.endTime) - timeToMinutes(b.startTime));
+        }, 0);
+        const pct = todayBlocks.length > 0 ? Math.round((completedBlocks.length / todayBlocks.length) * 100) : 0;
+
+        // page-tasktracking IDs
+        var el1 = document.getElementById('totalStudyHours');
+        var el2 = document.getElementById('completedBlocks');
+        var el3 = document.getElementById('studyStreak');
+        var el4 = document.getElementById('efficiencyScore');
+        if (el1) el1.textContent = (totalMinutes / 60).toFixed(1);
+        if (el2) el2.textContent = completedBlocks.length;
+        if (el3) el3.textContent = gamification.streak;
+        if (el4) el4.textContent = pct + '%';
+
+        // page-studyTracker IDs
+        var el5 = document.getElementById('studyTotalHours');
+        var el6 = document.getElementById('studyCompletedBlocks');
+        var el7 = document.getElementById('studyStreakVal');
+        var el8 = document.getElementById('studyEfficiency');
+        if (el5) el5.textContent = (totalMinutes / 60).toFixed(1);
+        if (el6) el6.textContent = completedBlocks.length;
+        if (el7) el7.textContent = gamification.streak;
+        if (el8) el8.textContent = pct + '%';
+
+    }
+
+    function markActivity() {
+        const today = new Date().toISOString().split('T')[0];
+        dailyActivity[today] = (dailyActivity[today] || 0) + 1;
+        saveData();
+    }
+
+    // ========================================
+    // AI Habit Analysis
+    // ========================================
+    function generateHabitInsights() {
+        const container = document.getElementById('habitInsights');
+        const studyContainer = document.getElementById('studyHabitInsights');
+        if (!container && !studyContainer) return;
+
+        const insights = [];
+        const today = new Date().toISOString().split('T')[0];
+
+        if (homework.length > 0) {
+            const completedRatio = homework.filter(function(h) { return h.completed; }).length / homework.length;
+            if (completedRatio >= 0.8) {
+                insights.push({ type: 'success', icon: 'fa-check-circle', title: 'Ø£Ø¯Ø§Ø¡ Ù…Ù…ØªØ§Ø²!', text: 'Ø£ÙƒÙ…Ù„Øª ' + Math.round(completedRatio * 100) + '% Ù…Ù† ÙˆØ§Ø¬Ø¨Ø§ØªÙƒ. Ø§Ø³ØªÙ…Ø± ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ø£Ø¯Ø§Ø¡ Ø§Ù„Ø±Ø§Ø¦Ø¹!' });
+            } else if (completedRatio < 0.4) {
+                insights.push({ type: 'warning', icon: 'fa-exclamation-triangle', title: 'ÙŠØ¬Ø¨ Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª', text: 'Ù„Ø¯ÙŠÙƒ ' + homework.filter(function(h) { return !h.completed; }).length + ' ÙˆØ§Ø¬Ø¨Ø§Øª Ù…Ø¹Ù„Ù‚Ø©. Ø­Ø§ÙˆÙ„ ØªØ®ØµÙŠØµ Ø£ÙˆÙ‚Ø§Øª Ù…Ø­Ø¯Ø¯Ø© Ù„Ù„Ø¥Ù†Ø¬Ø§Ø².' });
+            }
+        }
+
+        if (exams.length > 0) {
+            const upcomingExams = exams.filter(function(e) { return new Date(e.date) >= new Date(); });
+            const nearestExam = upcomingExams.sort(function(a, b) { return new Date(a.date) - new Date(b.date); })[0];
+            if (nearestExam) {
+                const daysUntil = Math.ceil((new Date(nearestExam.date) - new Date()) / (1000 * 60 * 60 * 24));
+                if (daysUntil <= 3) {
+                    insights.push({ type: 'warning', icon: 'fa-clock', title: 'Ø§Ù…ØªØ­Ø§Ù† Ù‚Ø±ÙŠØ¨!', text: 'Ø§Ù…ØªØ­Ø§Ù† ' + nearestExam.subject + ' Ø¨Ø¹Ø¯ ' + daysUntil + ' Ø£ÙŠØ§Ù…. Ø±ÙƒØ² Ø¹Ù„Ù‰ Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ù…ÙƒØ«ÙØ©.' });
+                } else if (daysUntil <= 7) {
+                    insights.push({ type: 'tip', icon: 'fa-lightbulb', title: 'ØªØ®Ø·ÙŠØ· Ù„Ù„Ø§Ù…ØªØ­Ø§Ù†', text: 'Ø§Ù…ØªØ­Ø§Ù† ' + nearestExam.subject + ' Ø¨Ø¹Ø¯ ' + daysUntil + ' Ø£ÙŠØ§Ù…. Ø§Ø¨Ø¯Ø£ Ø¨Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ù…ÙˆØ§Ø¯ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©.' });
+                }
+            }
+        }
+
+        if (gamification.streak >= 3) {
+            insights.push({ type: 'success', icon: 'fa-fire', title: 'Ø³Ù„Ø³Ù„Ø© Ù†Ø´Ø§Ø·!', text: 'Ø£Ù†Øª Ù†Ø´Ø· Ù…Ù†Ø° ' + gamification.streak + ' Ø£ÙŠØ§Ù… Ù…ØªØªØ§Ù„ÙŠØ©. Ù‡Ø°Ø§ Ø±Ø§Ø¦Ø¹ Ù„Ù„Ø­ÙØ§Ø¸ Ø¹Ù„Ù‰ Ø§Ù„Ø¥ÙŠÙ‚Ø§Ø¹!' });
+        }
+
+        if (pomodoro.todayStats.completedSessions >= 4) {
+            insights.push({ type: 'success', icon: 'fa-clock', title: 'Ù…Ø°Ø§ÙƒØ±Ø© Ù…Ù†Ø¸Ù…Ø©!', text: 'Ø£ÙƒÙ…Ù„Øª ' + pomodoro.todayStats.completedSessions + ' Ø¬ÙˆÙ„Ø§Øª Ø¨ÙˆÙ…ÙˆØ¯ÙˆØ±Ùˆ Ø§Ù„ÙŠÙˆÙ…. Ù‡Ø°Ø§ ÙŠØ­Ø³Ù† Ø§Ù„ØªØ±ÙƒÙŠØ² ÙˆØ§Ù„ØªØ±ÙƒÙŠØ².' });
+        }
+
+        const totalStudyMin = classes.filter(function(c) { return c.date === today; }).reduce(function(sum, c) { return sum + c.duration; }, 0) + pomodoro.todayStats.totalMinutes;
+        if (totalStudyMin < 60 && new Date().getHours() > 16) {
+            insights.push({ type: 'tip', icon: 'fa-lightbulb', title: 'Ù…Ø°Ø§ÙƒØ±Ø© Ø¥Ø¶Ø§ÙÙŠØ©', text: 'Ù„Ø¯Øª Ù…Ø°Ø§ÙƒØ±ØªÙƒ Ø§Ù„ÙŠÙˆÙ… Ù‚Ù„ÙŠÙ„Ø©. Ø­Ø§ÙˆÙ„ Ø¥Ø¶Ø§ÙØ© Ø¨Ù„ÙˆÙƒ ÙˆÙ‚Øª Ø¥Ø¶Ø§ÙÙŠ Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©.' });
+        }
+
+        if (insights.length === 0) {
+            insights.push({ type: 'tip', icon: 'fa-info-circle', title: 'Ø§Ø¨Ø¯Ø£ Ø§Ù„Ù†Ø´Ø§Ø·', text: 'Ø£Ø¶Ù ÙˆØ§Ø¬Ø¨Ø§ØªÙƒ ÙˆØ§Ù…ØªØ­Ø§Ù†Ø§ØªÙƒ ÙˆÙ…ÙˆØ§Ø¯ Ø§Ù„ÙŠÙˆÙ… Ù„Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ ØªØ­Ù„ÙŠÙ„Ø§Øª Ø°ÙƒÙŠØ© Ù…Ø®ØµØµØ© Ù„Ø¹Ø§Ø¯Ø§ØªÙƒ.' });
+        }
+
+        const insightsHtml = insights.map(function(insight) {
+            return '<div class="habit-insight-item ' + insight.type + '">' +
+                '<div class="habit-insight-icon"><i class="fas ' + insight.icon + '"></i></div>' +
+                '<div class="habit-insight-text">' +
+                    '<strong>' + escapeHtml(insight.title) + '</strong>' +
+                    '<p>' + escapeHtml(insight.text) + '</p>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        if (container) container.innerHTML = insightsHtml;
+        if (studyContainer) studyContainer.innerHTML = insightsHtml;
+    }
+
+    // ========================================
+    // Data Export/Import System
+    // ========================================
+    function exportData() {
+        const userId = currentUser.id;
+        const exportObj = {
+            version: '2.0',
+            exportDate: new Date().toISOString(),
+            user: { displayName: currentUser.displayName, email: currentUser.email },
+            data: {
+                homework: homework,
+                exams: exams,
+                classes: classes,
+                schedule: dailySchedule,
+                gamification: gamification,
+                pomodoro: pomodoro,
+                timeBlocks: timeBlocks,
+                dailyActivity: dailyActivity,
+                notificationSettings: notificationSettings,
+                conversations: conversations
+            }
+        };
+
+        const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'back-to-school-backup-' + new Date().toISOString().split('T')[0] + '.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('ØªÙ… Ø§Ù„ØªØµØ¯ÙŠØ±', 'ØªÙ… ØªØµØ¯ÙŠØ± Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¨Ù†Ø¬Ø§Ø­', 'success');
+    }
+
+    function importData(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const imported = JSON.parse(e.target.result);
+                if (!imported.data || imported.version !== '2.0') {
+                    showToast('Ø®Ø·Ø£', 'Ù…Ù„Ù Ø§Ù„Ø§Ø³ØªÙŠØ±Ø§Ø¯ ØºÙŠØ± ØµØ§Ù„Ø­', 'danger');
+                    return;
+                }
+
+                if (!confirm('Ø³ÙŠØªÙ… Ø§Ø³ØªØ¨Ø¯Ø§Ù„ Ø¬Ù…ÙŠØ¹ Ø¨ÙŠØ§Ù†Ø§ØªÙƒ Ø§Ù„Ø­Ø§Ù„ÙŠØ© Ø¨Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø³ØªÙˆØ±Ø¯Ø©. Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ØŸ')) return;
+
+                homework = imported.data.homework || [];
+                exams = imported.data.exams || [];
+                classes = imported.data.classes || [];
+                dailySchedule = imported.data.schedule || [];
+                gamification = imported.data.gamification || gamification;
+                pomodoro = imported.data.pomodoro || pomodoro;
+                timeBlocks = imported.data.timeBlocks || [];
+                dailyActivity = imported.data.dailyActivity || {};
+                notificationSettings = imported.data.notificationSettings || notificationSettings;
+                conversations = imported.data.conversations || [];
+
+                saveData();
+                loadData();
+                showToast('ØªÙ… Ø§Ù„Ø§Ø³ØªÙŠØ±Ø§Ø¯', 'ØªÙ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¨Ù†Ø¬Ø§Ø­', 'success');
+            } catch(err) {
+                showToast('Ø®Ø·Ø£', 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ù…Ù„Ù', 'danger');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function initExportImport() {
+        const exportBtn = document.getElementById('exportDataBtn');
+        const importBtn = document.getElementById('importDataBtn');
+        const importInput = document.getElementById('importFileInput');
+
+        if (exportBtn) exportBtn.addEventListener('click', exportData);
+        if (importBtn) importBtn.addEventListener('click', function() { importInput.click(); });
+        if (importInput) importInput.addEventListener('change', function(e) {
+            if (e.target.files.length > 0) importData(e.target.files[0]);
+            e.target.value = '';
+        });
+    }
+
+    // ========================================
+    // Enhanced AI Response with Habit Analysis
+    // ========================================
+    function generateAIResponse(message) {
+        const lowerMsg = message.toLowerCase();
+
+        if (lowerMsg.includes('Ø¬Ø¯ÙˆÙ„') || lowerMsg.includes('ØªÙ†Ø¸ÙŠÙ…') || lowerMsg.includes('Ø®Ø·Ø©')) {
+            generateDailySchedule();
+            return 'ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ø¯ÙˆÙ„ ÙŠÙˆÙ…Ùƒ Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ Ø§Ù„ÙˆÙ‚Øª Ø§Ù„Ù…Ø­Ø¯Ø¯! ÙŠÙ…ÙƒÙ†Ùƒ Ù…Ø´Ø§Ù‡Ø¯ØªÙ‡ ÙÙŠ Ù‚Ø³Ù… "Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø§Ù„ÙŠÙˆÙ…ÙŠ" Ø£Ùˆ ÙÙŠ Ø§Ù„Ø´Ø±ÙŠØ· Ø§Ù„Ø¬Ø§Ù†Ø¨ÙŠ.';
+        }
+        if (lowerMsg.includes('Ø­ØµØµ') || lowerMsg.includes('Ø­ØµØ©') || lowerMsg.includes('Ù…ÙˆØ§Ø¯')) {
+            const todayDate = new Date().toISOString().split('T')[0];
+            const todaySubjects = classes.filter(function(c) { return c.date === todayDate; });
+            if (todaySubjects.length > 0) {
+                const totalTime = todaySubjects.reduce(function(sum, s) { return sum + (s.duration || 45); }, 0);
+                return 'Ù„Ø¯ÙŠÙƒ ' + todaySubjects.length + ' Ù…ÙˆØ§Ø¯ Ø§Ù„ÙŠÙˆÙ… (' + totalTime + ' Ø¯Ù‚ÙŠÙ‚Ø© Ù…Ø°Ø§ÙƒØ±Ø©):<br>' +
+                    todaySubjects.map(function(c) { return 'â€¢ ' + escapeHtml(c.name) + ' - ' + c.duration + ' Ø¯Ù‚ÙŠÙ‚Ø© (Ø§Ù„Ø£ÙˆÙ„ÙˆÙŠØ©: ' + (c.priority === 'high' ? 'Ø¹Ø§Ù„ÙŠØ©' : c.priority === 'medium' ? 'Ù…ØªÙˆØ³Ø·Ø©' : 'Ù…Ù†Ø®ÙØ¶Ø©') + ')'; }).join('<br>');
+            }
+            return 'Ù„Ù… ØªØ¶Ù Ù…ÙˆØ§Ø¯ Ø§Ù„ÙŠÙˆÙ… Ø¨Ø¹Ø¯. Ø£Ø¶Ù Ø§Ù„Ù…ÙˆØ§Ø¯ Ø§Ù„ØªÙŠ Ø¯Ø±Ø³ØªÙ‡Ø§ Ø§Ù„ÙŠÙˆÙ… Ù„ØªØ¸Ù‡Ø± Ù‡Ù†Ø§.';
+        }
+        if (lowerMsg.includes('ÙˆØ§Ø¬Ø¨')) {
+            const todayHw = homework.filter(function(h) { return !h.completed; });
+            if (todayHw.length > 0) {
+                return 'Ù„Ø¯ÙŠÙƒ ' + todayHw.length + ' ÙˆØ§Ø¬Ø¨Ø§Øª ØºÙŠØ± Ù…ÙƒØªÙ…Ù„Ø©:<br>' +
+                    todayHw.map(function(h) { return 'â€¢ ' + escapeHtml(h.title) + ' - ' + escapeHtml(h.subject); }).join('<br>');
+            }
+            return 'Ù„Ø§ ØªÙˆØ¬Ø¯ ÙˆØ§Ø¬Ø¨Ø§Øª Ù…Ø³ØªØ­Ù‚Ø© Ø§Ù„ÙŠÙˆÙ….';
+        }
+        if (lowerMsg.includes('Ø§Ù…ØªØ­Ø§Ù†') || lowerMsg.includes('Ø§Ø®ØªØ¨Ø§Ø±')) {
+            const upcomingExams = exams.filter(function(e) { return new Date(e.date) >= new Date(); }).slice(0, 3);
+            if (upcomingExams.length > 0) {
+                return 'Ø§Ù…ØªØ­Ø§Ù†Ø§ØªÙƒ Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©:<br>' +
+                    upcomingExams.map(function(e) { return 'â€¢ ' + escapeHtml(e.name) + ' - ' + escapeHtml(e.subject) + ' (' + formatDate(e.date) + ')'; }).join('<br>');
+            }
+            return 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ø§Ù…ØªØ­Ø§Ù†Ø§Øª Ù‚Ø§Ø¯Ù…Ø©.';
+        }
+        if (lowerMsg.includes('Ù†ØµÙŠØ­Ø©') || lowerMsg.includes('Ø§Ù‚ØªØ±Ø§Ø­') || lowerMsg.includes('ØªØ­Ù„ÙŠÙ„')) {
+            const tips = [];
+            if (gamification.streak >= 3) tips.push('Ø£Ù†Øª ÙÙŠ Ø³Ù„Ø³Ù„Ø© Ù†Ø´Ø§Ø· Ø¬ÙŠØ¯Ø© Ù…Ù†Ø° ' + gamification.streak + ' Ø£ÙŠØ§Ù…! Ø§Ø³ØªÙ…Ø±.');
+            if (pomodoro.todayStats.completedSessions < 3) tips.push('Ø­Ø§ÙˆÙ„ Ø¥ÙƒÙ…Ø§Ù„ 3 Ø¬ÙˆÙ„Ø§Øª Ø¨ÙˆÙ…ÙˆØ¯ÙˆØ±Ùˆ Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„ Ø§Ù„ÙŠÙˆÙ….');
+            const pendingHw = homework.filter(function(h) { return !h.completed; }).length;
+            if (pendingHw > 3) tips.push('Ù„Ø¯ÙŠÙƒ ' + pendingHw + ' ÙˆØ§Ø¬Ø¨Ø§Øª Ù…Ø¹Ù„Ù‚Ø©. Ø±ØªØ¨Ù‡Ø§ Ø­Ø³Ø¨ Ø§Ù„Ø£ÙˆÙ„ÙˆÙŠØ©.');
+            if (tips.length === 0) tips.push('Ø¨Ø¯Ø§ÙŠØ© ÙŠÙˆÙ…Ùƒ Ø¬ÙŠØ¯Ø©! Ø­Ø§ÙˆÙ„ Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ø¯ÙˆÙ„ ÙŠÙˆÙ…ÙŠ Ù…Ù†Ø¸Ù….');
+            return 'ðŸ’¡ Ù†ØµØ§Ø¦Ø­ÙŠ Ù„Ùƒ:<br>' + tips.map(function(t) { return 'â€¢ ' + t; }).join('<br>');
+        }
+        if (lowerMsg.includes('ØªØªØ¨Ø¹') || lowerMsg.includes('Ø¨Ù„ÙˆÙƒ') || lowerMsg.includes('ÙˆÙ‚Øª')) {
+            navigateTo('tasktracking');
+            return 'ØªÙ… Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„ØµÙØ­Ø© ØªØªØ¨Ø¹ Ø§Ù„Ù…Ù‡Ø§Ù…. ÙŠÙ…ÙƒÙ†Ùƒ Ù‡Ù†Ø§Ùƒ Ø¥Ø¶Ø§ÙØ© Ø¨Ù„ÙˆÙƒØ§Øª ÙˆÙ‚Øª Ù…Ø®ØµØµØ© Ù„Ù„Ù…Ø°Ø§ÙƒØ±Ø© ÙˆØ§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©.';
+        }
+        if (lowerMsg.includes('Ø¥Ù†Ø¬Ø§Ø²') || lowerMsg.includes('Ù†Ù‚Ø§Ø·') || lowerMsg.includes('Ù†iveau')) {
+            return 'ðŸ“Š Ø¥Ø­ØµØ§Ø¦ÙŠØ§ØªÙƒ:<br>â€¢ Ø§Ù„Ù…Ø³ØªÙˆÙ‰: ' + gamification.level + '<br>â€¢ Ø§Ù„Ù†Ù‚Ø§Ø·: ' + gamification.points + '<br>â€¢ Ø§Ù„Ø³Ù„Ø³Ù„Ø©: ' + gamification.streak + ' Ø£ÙŠØ§Ù…<br>â€¢ Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª Ø§Ù„Ù…ÙƒØªÙ…Ù„Ø©: ' + gamification.totalCompletedHW;
+        }
+        if (lowerMsg.includes('ØªØµØ¯ÙŠØ±') || lowerMsg.includes('Ù†Ø³Ø®') || lowerMsg.includes('Ø§Ø­ØªÙŠØ§Ø·ÙŠ')) {
+            navigateTo('settings');
+            return 'ØªÙ… Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª. ÙŠÙ…ÙƒÙ†Ùƒ ØªØµØ¯ÙŠØ± Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ù† Ù‚Ø³Ù… "Ø§Ù„Ù†Ø³Ø® Ø§Ù„Ø§Ø­ØªÙŠØ§Ø·ÙŠ".';
+        }
+        return 'Ø£Ù†Ø§ Ù‡Ù†Ø§ Ù„Ù…Ø³Ø§Ø¹Ø¯ØªÙƒ ÙÙŠ ØªÙ†Ø¸ÙŠÙ… Ø§Ù„ÙŠÙˆÙ…! ÙŠÙ…ÙƒÙ†Ù†ÙŠ:<br>â€¢ Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ø¯ÙˆÙ„ ÙŠÙˆÙ…ÙŠ<br>â€¢ Ø¹Ø±Ø¶ Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª ÙˆØ§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª<br>â€¢ Ù†ØµØ§Ø¦Ø­ Ù„Ù„Ø¯Ø±Ø§Ø³Ø©<br>â€¢ ØªØªØ¨Ø¹ Ù†Ø´Ø§Ø·Ùƒ<br>â€¢ ØªØµØ¯ÙŠØ± Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª<br>Ø¬Ø±Ù‘Ø¨ Ø£Ø³Ø£Ù„Ù†ÙŠ Ø¹Ù† Ø£ÙŠ Ø´ÙŠØ¡!';
+    }
+
+})();
