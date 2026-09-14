@@ -443,7 +443,13 @@
             notif_daily_label: 'تذكير النشاط اليومي',
             pw_current_ph: 'أدخل كلمة المرور الحالية',
             pw_new_ph: 'أدخل كلمة المرور الجديدة',
-            pw_confirm_ph: 'أعد إدخال كلمة المرور الجديدة'
+            pw_confirm_ph: 'أعد إدخال كلمة المرور الجديدة',
+            btn_export_schedule: 'تصدير الجدول',
+            chart_study_hours: 'ساعات المذاكرة هذا الأسبوع',
+            chart_subjects_dist: 'توزيع المواد',
+            chart_no_data: 'لا توجد بيانات كافية',
+            toast_export_schedule_success: 'تم تصدير الجدول بنجاح',
+            toast_export_schedule_title: 'تصدير الجدول'
         },
         en: {
             app_name: 'Back to School',
@@ -763,7 +769,13 @@
             notif_daily_label: 'Daily Activity Reminder',
             pw_current_ph: 'Enter current password',
             pw_new_ph: 'Enter new password',
-            pw_confirm_ph: 'Re-enter new password'
+            pw_confirm_ph: 'Re-enter new password',
+            btn_export_schedule: 'Export Schedule',
+            chart_study_hours: 'Study Hours This Week',
+            chart_subjects_dist: 'Subjects Distribution',
+            chart_no_data: 'Not enough data',
+            toast_export_schedule_success: 'Schedule exported successfully',
+            toast_export_schedule_title: 'Schedule Exported'
         }
     };
 
@@ -1125,6 +1137,8 @@
 
         initTaskTracking();
         initExportImport();
+        initExportSchedule();
+        renderStudyCharts();
     }
 
     // Navigation
@@ -2686,6 +2700,202 @@
         if (importInput) importInput.addEventListener('change', function(e) {
             if (e.target.files.length > 0) importData(e.target.files[0]);
             e.target.value = '';
+        });
+    }
+
+    function initExportSchedule() {
+        var exportBtn = document.getElementById('exportScheduleBtn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', function() {
+                exportScheduleAsImage();
+            });
+        }
+    }
+
+    // ========================================
+    // Export Schedule as Image/PDF
+    // ========================================
+    function exportScheduleAsImage() {
+        var t = translations[currentLang];
+        var scheduleEl = document.getElementById('scheduleTimeline');
+        if (!scheduleEl || dailySchedule.length === 0) {
+            showToast(t.close, t.no_schedule_yet, 'warning');
+            return;
+        }
+
+        if (typeof html2canvas === 'undefined') {
+            showToast(t.close, 'html2canvas not loaded', 'danger');
+            return;
+        }
+
+        html2canvas(scheduleEl, {
+            backgroundColor: currentTheme === 'dark' ? '#12122a' : '#ffffff',
+            scale: 2,
+            useCORS: true
+        }).then(function(canvas) {
+            var link = document.createElement('a');
+            link.download = 'daily-schedule-' + new Date().toISOString().split('T')[0] + '.png';
+            link.href = canvas.toDataURL('image/png');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast(t.toast_export_schedule_title, t.toast_export_schedule_success, 'success');
+        }).catch(function(err) {
+            showToast(t.close, 'Export failed', 'danger');
+        });
+    }
+
+    function exportScheduleAsPDF() {
+        var t = translations[currentLang];
+        var scheduleEl = document.getElementById('scheduleTimeline');
+        if (!scheduleEl || dailySchedule.length === 0) {
+            showToast(t.close, t.no_schedule_yet, 'warning');
+            return;
+        }
+
+        if (typeof html2canvas === 'undefined' || typeof jspdf === 'undefined') {
+            showToast(t.close, 'Libraries not loaded', 'danger');
+            return;
+        }
+
+        html2canvas(scheduleEl, {
+            backgroundColor: currentTheme === 'dark' ? '#12122a' : '#ffffff',
+            scale: 2,
+            useCORS: true
+        }).then(function(canvas) {
+            var imgData = canvas.toDataURL('image/png');
+            var pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+            var pdfWidth = pdf.internal.pageSize.getWidth();
+            var pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save('daily-schedule-' + new Date().toISOString().split('T')[0] + '.pdf');
+            showToast(t.toast_export_schedule_title, t.toast_export_schedule_success, 'success');
+        }).catch(function(err) {
+            showToast(t.close, 'Export failed', 'danger');
+        });
+    }
+
+    // ========================================
+    // Study Charts (Chart.js)
+    // ========================================
+    let weeklyStudyChartInstance = null;
+    let subjectsPieChartInstance = null;
+
+    function renderStudyCharts() {
+        renderWeeklyStudyChart();
+        renderSubjectsPieChart();
+    }
+
+    function renderWeeklyStudyChart() {
+        var canvas = document.getElementById('weeklyStudyChart');
+        if (!canvas) return;
+        var t = translations[currentLang];
+
+        var ctx = canvas.getContext('2d');
+        var dayLabels = currentLang === 'ar' ? ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'] : ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        var today = new Date();
+        var studyData = [];
+
+        for (var i = 6; i >= 0; i--) {
+            var date = new Date(today);
+            date.setDate(date.getDate() - i);
+            var dateStr = date.toISOString().split('T')[0];
+            var dayClasses = classes.filter(function(c) { return c.date === dateStr; });
+            var totalMin = dayClasses.reduce(function(sum, c) { return sum + (c.duration || 0); }, 0);
+            studyData.push(Math.round(totalMin / 60 * 10) / 10);
+        }
+
+        if (weeklyStudyChartInstance) {
+            weeklyStudyChartInstance.destroy();
+        }
+
+        weeklyStudyChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dayLabels,
+                datasets: [{
+                    label: t.chart_study_hours,
+                    data: studyData,
+                    backgroundColor: 'rgba(108, 92, 231, 0.6)',
+                    borderColor: 'rgba(108, 92, 231, 1)',
+                    borderWidth: 1,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#b2b2d0', font: { family: 'Tajawal' } }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#b2b2d0', font: { family: 'Tajawal' } }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderSubjectsPieChart() {
+        var canvas = document.getElementById('subjectsPieChart');
+        if (!canvas) return;
+
+        var ctx = canvas.getContext('2d');
+        var subjectMap = {};
+        var today = new Date().toISOString().split('T')[0];
+        var recentClasses = classes.slice(-30);
+
+        recentClasses.forEach(function(c) {
+            if (!subjectMap[c.name]) subjectMap[c.name] = 0;
+            subjectMap[c.name] += c.duration || 0;
+        });
+
+        var labels = Object.keys(subjectMap);
+        var data = Object.values(subjectMap);
+        var colors = ['#6c5ce7', '#00cec9', '#fd79a8', '#00b894', '#fdcb6e', '#e17055', '#74b9ff', '#a29bfe'];
+
+        if (subjectsPieChartInstance) {
+            subjectsPieChartInstance.destroy();
+        }
+
+        if (labels.length === 0) {
+            var t = translations[currentLang];
+            var ctx2 = canvas.getContext('2d');
+            ctx2.clearRect(0, 0, canvas.width, canvas.height);
+            ctx2.fillStyle = '#b2b2d0';
+            ctx2.font = '14px Tajawal';
+            ctx2.textAlign = 'center';
+            ctx2.fillText(t.chart_no_data, canvas.width / 2, canvas.height / 2);
+            return;
+        }
+
+        subjectsPieChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: colors.slice(0, labels.length),
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#b2b2d0', font: { family: 'Tajawal', size: 12 }, padding: 15 }
+                    }
+                }
+            }
         });
     }
 
