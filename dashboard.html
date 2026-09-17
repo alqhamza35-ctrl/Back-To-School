@@ -40,6 +40,8 @@
                 <a href="#" class="nav-item" data-page="schedule"><i class="fas fa-calendar-day"></i><span data-i18n="nav_schedule">الجدول اليومي</span></a>
                 <a href="#" class="nav-item" data-page="calendar"><i class="fas fa-calendar"></i><span data-i18n="nav_calendar">التقويم</span></a>
                 <a href="#" class="nav-item" data-page="pomodoro"><i class="fas fa-clock"></i><span data-i18n="nav_pomodoro">مؤقت المذاكرة</span></a>
+                <a href="#" class="nav-item" data-page="edufocus"><i class="fas fa-pen-ruler"></i><span data-i18n="nav_edufocus">EduFocus Canvas</span></a>
+                <a href="#" class="nav-item" data-page="edufocus" data-focus-action="quiz"><i class="fas fa-clipboard-question"></i><span data-i18n="nav_add_quiz">إضافة اختبار</span></a>
                 <a href="#" class="nav-item" data-page="achievements"><i class="fas fa-trophy"></i><span data-i18n="nav_achievements">الإنجازات</span></a>
                 <a href="#" class="nav-item" data-page="parent"><i class="fas fa-users"></i><span data-i18n="nav_parent">لوحة الوالدين</span></a>
                 <a href="#" class="nav-item" data-page="tasktracking"><i class="fas fa-tasks"></i><span data-i18n="nav_tasktracking">تتبع المهام</span></a>
@@ -434,6 +436,31 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <div class="page" id="page-edufocus">
+                    <div class="page-header edufocus-heading">
+                        <div><h2><i class="fas fa-pen-ruler"></i> <span data-i18n="edufocus_title">EduFocus Canvas</span></h2><p data-i18n="edufocus_description">مساحة تفاعلية للقراءة والرسم والملاحظات والاختبارات</p></div>
+                        <button class="btn btn-primary" id="newQuizBtn"><i class="fas fa-circle-plus"></i> <span data-i18n="nav_add_quiz">إضافة اختبار</span></button>
+                    </div>
+                    <div class="edufocus-layout">
+                        <section class="edufocus-workspace">
+                            <div class="canvas-toolbar" role="toolbar" aria-label="أدوات الرسم">
+                                <label class="file-picker"><i class="fas fa-upload"></i><span data-i18n="edufocus_upload">رفع ملف</span><input type="file" id="edufocusFile" accept=".pdf,.docx,.xlsx,.pptx"></label>
+                                <span class="toolbar-divider"></span>
+                                <button class="canvas-tool active" data-tool="pen" title="قلم"><i class="fas fa-pen"></i></button><button class="canvas-tool" data-tool="highlighter" title="تمييز"><i class="fas fa-highlighter"></i></button><button class="canvas-tool" data-tool="text" title="نص"><i class="fas fa-font"></i></button><button class="canvas-tool" data-tool="eraser" title="ممحاة"><i class="fas fa-eraser"></i></button>
+                                <input type="color" id="canvasColor" value="#ff6b6b" title="لون القلم"><label class="range-control">الحجم <input type="range" id="canvasSize" min="2" max="36" value="5"></label><button class="canvas-tool" id="clearCanvas" title="مسح الرسم"><i class="fas fa-trash-can"></i></button>
+                            </div>
+                            <div class="file-status" id="edufocusFileStatus"><i class="fas fa-file-lines"></i><span data-i18n="edufocus_empty_viewer">ارفع ملفًا لعرضه هنا أو ابدأ بالرسم على المساحة البيضاء</span></div>
+                            <div class="canvas-stage" id="canvasStage"><div class="document-viewer" id="documentViewer"><div class="viewer-placeholder"><i class="fas fa-layer-group"></i><strong data-i18n="edufocus_viewer">مساحة العرض</strong><span data-i18n="edufocus_file_types">PDF و Word و Excel و PowerPoint</span></div></div><canvas id="drawingCanvas"></canvas><div class="text-layer" id="textLayer"></div></div>
+                        </section>
+                        <aside class="edufocus-sidebar">
+                            <div class="focus-panel"><div class="panel-title"><span><i class="fas fa-stopwatch"></i> <span data-i18n="edufocus_timer">مؤقت التركيز</span></span><span class="focus-mode" id="focusMode" data-i18n="pomodoro_work">مذاكرة</span></div><div class="focus-timer" id="focusTimer">25:00</div><div class="timer-actions"><button class="btn btn-primary" id="focusStart"><i class="fas fa-play"></i> <span data-i18n="pomodoro_start">تشغيل</span></button><button class="btn btn-secondary" id="focusPause"><i class="fas fa-pause"></i> <span data-i18n="pomodoro_pause">إيقاف</span></button><button class="btn-icon" id="focusReset" title="إعادة ضبط" data-i18n-title="pomodoro_reset"><i class="fas fa-rotate-left"></i></button></div><label class="focus-minutes"><span data-i18n="edufocus_minutes">الدقائق</span> <input type="number" id="focusMinutes" min="1" max="120" value="25"></label></div>
+                            <div class="focus-panel notes-panel"><div class="panel-title"><span><i class="fas fa-note-sticky"></i> <span data-i18n="edufocus_notes">ملاحظاتي</span></span><button class="btn-icon" id="saveFocusNote" title="حفظ" data-i18n-title="save"><i class="fas fa-check"></i></button></div><textarea id="focusNotes" placeholder="اكتب فكرة أو ملخصًا سريعًا..." data-i18n-placeholder="edufocus_notes_placeholder"></textarea><small id="noteSavedState" data-i18n="edufocus_autosave">تُحفظ الملاحظات تلقائيًا</small></div>
+                            <div class="focus-panel quiz-mini-panel"><div class="panel-title"><span><i class="fas fa-clipboard-question"></i> <span data-i18n="edufocus_quizzes">اختباراتك</span></span><span class="quiz-count" id="quizCount">0</span></div><div id="quizList"><div class="empty-state-sm" data-i18n="edufocus_no_quizzes">لم تضف اختبارًا بعد</div></div></div>
+                        </aside>
+                    </div>
+                    <section class="quiz-builder-panel" id="quizBuilderPanel"><div class="panel-title"><span><i class="fas fa-wand-magic-sparkles"></i> <span data-i18n="edufocus_new_quiz">إنشاء اختبار جديد</span></span><button class="btn-icon" id="closeQuizBuilder" title="إغلاق" data-i18n-title="close"><i class="fas fa-xmark"></i></button></div><div class="quiz-builder-grid"><label><span data-i18n="edufocus_quiz_name">اسم الاختبار</span><input type="text" id="quizTitle" placeholder="مثال: مراجعة الوحدة الأولى" data-i18n-placeholder="edufocus_quiz_name_placeholder"></label><label><span data-i18n="hw_subject_label">المادة</span><input type="text" id="quizSubject" placeholder="مثال: الرياضيات" data-i18n-placeholder="edufocus_subject_placeholder"></label></div><div id="quizQuestions"></div><div class="quiz-builder-actions"><button class="btn btn-secondary" id="addQuestionBtn"><i class="fas fa-plus"></i> <span data-i18n="edufocus_add_question">إضافة سؤال</span></button><button class="btn btn-primary" id="saveQuizBtn"><i class="fas fa-floppy-disk"></i> <span data-i18n="edufocus_save_quiz">حفظ الاختبار</span></button></div></section>
                 </div>
 
                 <!-- Achievements/Gamification Page -->
@@ -994,6 +1021,10 @@
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-messaging-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="firebase-config.js"></script>
     <script src="dashboard.js"></script>
     <script>

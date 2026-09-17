@@ -117,6 +117,14 @@
         dailyReminder: true
     };
 
+    let focusQuizzes = [];
+    let focusNote = '';
+    let focusTimerId = null;
+    let focusSecondsLeft = 25 * 60;
+    let focusTool = 'pen';
+    let focusDrawing = false;
+    let focusLastPoint = null;
+
     // Theme State
     let currentTheme = 'dark';
 
@@ -177,6 +185,44 @@
             btn_regenerate: 'إعادة إنشاء الجدول',
             page_calendar: 'التقويم',
             page_pomodoro: 'مؤقت المذاكرة (بومودورو)',
+            edufocus_title: 'EduFocus Canvas',
+            edufocus_subtitle: 'مساحة القراءة والرسم والاختبارات',
+            nav_edufocus: 'EduFocus Canvas',
+            nav_add_quiz: 'إضافة اختبار',
+            edufocus_description: 'مساحة تفاعلية للقراءة والرسم والملاحظات والاختبارات',
+            edufocus_upload: 'رفع ملف',
+            edufocus_empty_viewer: 'ارفع ملفًا لعرضه هنا أو ابدأ بالرسم على المساحة البيضاء',
+            edufocus_viewer: 'مساحة العرض',
+            edufocus_file_types: 'PDF و Word و Excel و PowerPoint',
+            edufocus_timer: 'مؤقت التركيز',
+            edufocus_minutes: 'الدقائق',
+            edufocus_notes: 'ملاحظاتي',
+            edufocus_notes_placeholder: 'اكتب فكرة أو ملخصًا سريعًا...',
+            edufocus_autosave: 'تُحفظ الملاحظات تلقائيًا',
+            edufocus_quizzes: 'اختباراتك',
+            edufocus_no_quizzes: 'لم تضف اختبارًا بعد',
+            edufocus_new_quiz: 'إنشاء اختبار جديد',
+            edufocus_quiz_name: 'اسم الاختبار',
+            edufocus_quiz_name_placeholder: 'مثال: مراجعة الوحدة الأولى',
+            edufocus_subject_placeholder: 'مثال: الرياضيات',
+            edufocus_add_question: 'إضافة سؤال',
+            edufocus_save_quiz: 'حفظ الاختبار',
+            edufocus_question: 'السؤال',
+            edufocus_question_placeholder: 'اكتب السؤال',
+            edufocus_option_one: 'الخيار الأول',
+            edufocus_option_two: 'الخيار الثاني',
+            edufocus_option_three: 'الخيار الثالث',
+            edufocus_option_four: 'الخيار الرابع',
+            edufocus_correct_answer: 'الإجابة الصحيحة',
+            edufocus_first: 'الأول',
+            edufocus_second: 'الثاني',
+            edufocus_third: 'الثالث',
+            edufocus_fourth: 'الرابع',
+            edufocus_saved: 'تم الحفظ الآن',
+            edufocus_missing: 'بيانات ناقصة',
+            edufocus_missing_desc: 'أضف اسم الاختبار وسؤالًا واحدًا على الأقل.',
+            edufocus_saved_title: 'تم الحفظ',
+            edufocus_saved_desc: 'تمت إضافة الاختبار إلى قائمتك.',
             page_achievements: 'الإنجازات والنقاط',
             page_parent: 'لوحة متابعة الوالدين',
             page_tasktracking: 'تتبع المهام الدراسية',
@@ -503,6 +549,44 @@
             btn_regenerate: 'Regenerate Schedule',
             page_calendar: 'Calendar',
             page_pomodoro: 'Study Timer (Pomodoro)',
+            edufocus_title: 'EduFocus Canvas',
+            edufocus_subtitle: 'Reading, drawing, and quiz workspace',
+            nav_edufocus: 'EduFocus Canvas',
+            nav_add_quiz: 'Add Quiz',
+            edufocus_description: 'Interactive workspace for reading, drawing, notes, and quizzes',
+            edufocus_upload: 'Upload File',
+            edufocus_empty_viewer: 'Upload a file to view it here or start drawing on the blank canvas',
+            edufocus_viewer: 'Viewer',
+            edufocus_file_types: 'PDF, Word, Excel, and PowerPoint',
+            edufocus_timer: 'Focus Timer',
+            edufocus_minutes: 'Minutes',
+            edufocus_notes: 'My Notes',
+            edufocus_notes_placeholder: 'Write a quick idea or summary...',
+            edufocus_autosave: 'Notes are saved automatically',
+            edufocus_quizzes: 'Your Quizzes',
+            edufocus_no_quizzes: 'No quizzes added yet',
+            edufocus_new_quiz: 'Create New Quiz',
+            edufocus_quiz_name: 'Quiz Name',
+            edufocus_quiz_name_placeholder: 'Example: Unit 1 Review',
+            edufocus_subject_placeholder: 'Example: Mathematics',
+            edufocus_add_question: 'Add Question',
+            edufocus_save_quiz: 'Save Quiz',
+            edufocus_question: 'Question',
+            edufocus_question_placeholder: 'Write the question',
+            edufocus_option_one: 'First option',
+            edufocus_option_two: 'Second option',
+            edufocus_option_three: 'Third option',
+            edufocus_option_four: 'Fourth option',
+            edufocus_correct_answer: 'Correct answer',
+            edufocus_first: 'First',
+            edufocus_second: 'Second',
+            edufocus_third: 'Third',
+            edufocus_fourth: 'Fourth',
+            edufocus_saved: 'Saved just now',
+            edufocus_missing: 'Missing information',
+            edufocus_missing_desc: 'Add a quiz name and at least one question.',
+            edufocus_saved_title: 'Saved',
+            edufocus_saved_desc: 'The quiz was added to your list.',
             page_achievements: 'Achievements & Points',
             page_parent: 'Parent Dashboard',
             page_tasktracking: 'Task Tracking',
@@ -892,6 +976,8 @@
         timeBlocks = JSON.parse(localStorage.getItem('bts_timeblocks_' + userId) || '[]');
         dailyActivity = JSON.parse(localStorage.getItem('bts_dailyactivity_' + userId) || '{}');
         notificationSettings = JSON.parse(localStorage.getItem('bts_notifsettings_' + userId) || 'null') || notificationSettings;
+        focusQuizzes = JSON.parse(localStorage.getItem('bts_edufocus_quizzes_' + userId) || '[]');
+        focusNote = localStorage.getItem('bts_edufocus_note_' + userId) || '';
         currentTheme = localStorage.getItem('bts_theme_' + userId) || 'dark';
 
         const today = new Date().toISOString().split('T')[0];
@@ -921,6 +1007,7 @@
         initTheme();
         initNotificationSettings();
         scheduleNotifications();
+        initEduFocus();
     }
 
     // Save Data
@@ -937,6 +1024,8 @@
         localStorage.setItem('bts_timeblocks_' + userId, JSON.stringify(timeBlocks));
         localStorage.setItem('bts_dailyactivity_' + userId, JSON.stringify(dailyActivity));
         localStorage.setItem('bts_notifsettings_' + userId, JSON.stringify(notificationSettings));
+        localStorage.setItem('bts_edufocus_quizzes_' + userId, JSON.stringify(focusQuizzes));
+        localStorage.setItem('bts_edufocus_note_' + userId, focusNote);
         localStorage.setItem('bts_theme_' + userId, currentTheme);
     }
 
@@ -976,6 +1065,7 @@
             var key = el.getAttribute('data-i18n-title');
             if (t[key]) el.title = t[key];
         });
+        if (document.getElementById('quizList')) renderFocusQuizzes();
     }
 
     function initLanguage() {
@@ -992,6 +1082,7 @@
             item.addEventListener('click', function(e) {
                 e.preventDefault();
                 navigateTo(this.dataset.page);
+                if (this.dataset.focusAction === 'quiz') openQuizBuilder();
             });
         });
 
@@ -1139,6 +1230,199 @@
         initExportImport();
         initExportSchedule();
         renderStudyCharts();
+        initEduFocusListeners();
+    }
+
+    function initEduFocus() {
+        var note = document.getElementById('focusNotes');
+        if (note) note.value = focusNote;
+        renderFocusQuizzes();
+        resetFocusTimer();
+        resizeDrawingCanvas();
+    }
+
+    function initEduFocusListeners() {
+        document.querySelectorAll('.canvas-tool[data-tool]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                focusTool = this.dataset.tool;
+                document.querySelectorAll('.canvas-tool[data-tool]').forEach(function(item) { item.classList.toggle('active', item === button); });
+                var canvas = document.getElementById('drawingCanvas');
+                if (canvas) canvas.style.cursor = focusTool === 'text' ? 'text' : 'crosshair';
+            });
+        });
+        safeOn('clearCanvas', 'click', function() {
+            var canvas = document.getElementById('drawingCanvas');
+            if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('textLayer').innerHTML = '';
+        });
+        safeOn('edufocusFile', 'change', previewEduFocusFile);
+        safeOn('focusStart', 'click', startFocusTimer);
+        safeOn('focusPause', 'click', pauseFocusTimer);
+        safeOn('focusReset', 'click', resetFocusTimer);
+        safeOn('focusMinutes', 'change', resetFocusTimer);
+        safeOn('saveFocusNote', 'click', saveFocusNote);
+        safeOn('newQuizBtn', 'click', openQuizBuilder);
+        safeOn('closeQuizBuilder', 'click', closeQuizBuilder);
+        safeOn('addQuestionBtn', 'click', addQuizQuestion);
+        safeOn('saveQuizBtn', 'click', saveFocusQuiz);
+        var canvas = document.getElementById('drawingCanvas');
+        if (canvas) {
+            canvas.addEventListener('pointerdown', beginFocusDrawing);
+            canvas.addEventListener('pointermove', drawFocusStroke);
+            canvas.addEventListener('pointerup', endFocusDrawing);
+            canvas.addEventListener('pointerleave', endFocusDrawing);
+        }
+        window.addEventListener('resize', resizeDrawingCanvas);
+    }
+
+    function resizeDrawingCanvas() {
+        var stage = document.getElementById('canvasStage');
+        var canvas = document.getElementById('drawingCanvas');
+        if (!stage || !canvas) return;
+        var image = canvas.width && canvas.height ? canvas.toDataURL() : '';
+        canvas.width = stage.clientWidth;
+        canvas.height = Math.max(stage.clientHeight, 480);
+        if (image) {
+            var restored = new Image();
+            restored.onload = function() { canvas.getContext('2d').drawImage(restored, 0, 0); };
+            restored.src = image;
+        }
+    }
+
+    function canvasPoint(event) {
+        var canvas = document.getElementById('drawingCanvas');
+        var rect = canvas.getBoundingClientRect();
+        return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+
+    function beginFocusDrawing(event) {
+        if (focusTool === 'text') {
+            var point = canvasPoint(event);
+            var input = document.createElement('textarea');
+            input.className = 'canvas-text-note';
+            input.placeholder = 'اكتب هنا';
+            input.style.left = point.x + 'px';
+            input.style.top = point.y + 'px';
+            input.addEventListener('blur', function() { if (!input.value.trim()) input.remove(); });
+            document.getElementById('textLayer').appendChild(input);
+            input.focus();
+            return;
+        }
+        focusDrawing = true;
+        focusLastPoint = canvasPoint(event);
+    }
+
+    function drawFocusStroke(event) {
+        if (!focusDrawing || focusTool === 'text') return;
+        var canvas = document.getElementById('drawingCanvas');
+        var context = canvas.getContext('2d');
+        var point = canvasPoint(event);
+        context.beginPath();
+        context.moveTo(focusLastPoint.x, focusLastPoint.y);
+        context.lineTo(point.x, point.y);
+        context.lineWidth = Number(document.getElementById('canvasSize').value) || 5;
+        context.lineCap = 'round';
+        context.strokeStyle = focusTool === 'eraser' ? 'rgba(0,0,0,1)' : document.getElementById('canvasColor').value;
+        context.globalCompositeOperation = focusTool === 'eraser' ? 'destination-out' : 'source-over';
+        context.globalAlpha = focusTool === 'highlighter' ? 0.28 : 1;
+        context.stroke();
+        context.globalAlpha = 1;
+        context.globalCompositeOperation = 'source-over';
+        focusLastPoint = point;
+    }
+
+    function endFocusDrawing() { focusDrawing = false; focusLastPoint = null; }
+
+    function previewEduFocusFile(event) {
+        var file = event.target.files && event.target.files[0];
+        if (!file) return;
+        var status = document.getElementById('edufocusFileStatus');
+        var viewer = document.getElementById('documentViewer');
+        status.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>جاري فتح ' + escapeHtml(file.name) + '</span>';
+        var extension = file.name.split('.').pop().toLowerCase();
+        if (extension === 'pdf' && window.pdfjsLib) {
+            var reader = new FileReader();
+            reader.onload = function() { renderPdfPreview(reader.result, viewer, file.name); };
+            reader.readAsArrayBuffer(file);
+        } else if (extension === 'docx' && window.mammoth) {
+            file.arrayBuffer().then(function(buffer) { return mammoth.convertToHtml({ arrayBuffer: buffer }); }).then(function(result) {
+                viewer.innerHTML = '<article class="doc-preview">' + result.value + '</article>';
+                status.innerHTML = '<i class="fas fa-file-word"></i><span>' + escapeHtml(file.name) + '</span>';
+            });
+        } else if (extension === 'xlsx' && window.XLSX) {
+            file.arrayBuffer().then(function(buffer) {
+                var workbook = XLSX.read(buffer, { type: 'array' });
+                viewer.innerHTML = workbook.SheetNames.map(function(name) { return '<h4>' + escapeHtml(name) + '</h4>' + XLSX.utils.sheet_to_html(workbook.Sheets[name]); }).join('');
+                status.innerHTML = '<i class="fas fa-file-excel"></i><span>' + escapeHtml(file.name) + '</span>';
+            });
+        } else if (extension === 'pptx' && window.JSZip) {
+            file.arrayBuffer().then(function(buffer) { return JSZip.loadAsync(buffer); }).then(function(zip) {
+                var slideNames = Object.keys(zip.files).filter(function(name) { return /^ppt\/slides\/slide\d+\.xml$/.test(name); }).sort();
+                return Promise.all(slideNames.map(function(name) { return zip.files[name].async('string'); }));
+            }).then(function(slides) {
+                viewer.innerHTML = slides.map(function(xml, index) { var text = xml.replace(/<a:t>/g, ' ').replace(/<\/a:t>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); return '<article class="doc-preview"><h3>الشريحة ' + (index + 1) + '</h3><p>' + escapeHtml(text || 'شريحة بدون نص') + '</p></article>'; }).join('');
+                status.innerHTML = '<i class="fas fa-file-powerpoint"></i><span>' + escapeHtml(file.name) + '</span>';
+            });
+        } else {
+            viewer.innerHTML = '<div class="viewer-placeholder"><i class="fas fa-file-powerpoint"></i><strong>' + escapeHtml(file.name) + '</strong><span>تم تحميل الملف. يمكن إضافة ملاحظاتك ورسوماتك فوق مساحة العرض.</span></div>';
+            status.innerHTML = '<i class="fas fa-file"></i><span>' + escapeHtml(file.name) + ' جاهز للمراجعة</span>';
+        }
+    }
+
+    function renderPdfPreview(data, viewer, name) {
+        window.pdfjsLib.getDocument({ data: data, disableWorker: true }).promise.then(function(pdf) { return pdf.getPage(1); }).then(function(page) {
+            var viewport = page.getViewport({ scale: 1.15 });
+            var pdfCanvas = document.createElement('canvas');
+            pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+            viewer.innerHTML = ''; viewer.appendChild(pdfCanvas);
+            return page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: viewport }).promise;
+        }).then(function() { document.getElementById('edufocusFileStatus').innerHTML = '<i class="fas fa-file-pdf"></i><span>' + escapeHtml(name) + ' - الصفحة الأولى</span>'; });
+    }
+
+    function updateFocusTimer() {
+        var minutes = Math.floor(focusSecondsLeft / 60);
+        var seconds = focusSecondsLeft % 60;
+        document.getElementById('focusTimer').textContent = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    }
+
+    function startFocusTimer() {
+        if (focusTimerId) return;
+        focusTimerId = setInterval(function() { focusSecondsLeft--; updateFocusTimer(); if (focusSecondsLeft <= 0) { pauseFocusTimer(); playNotificationSound(); } }, 1000);
+    }
+
+    function pauseFocusTimer() { if (focusTimerId) clearInterval(focusTimerId); focusTimerId = null; }
+    function resetFocusTimer() { pauseFocusTimer(); var input = document.getElementById('focusMinutes'); focusSecondsLeft = (Number(input && input.value) || 25) * 60; updateFocusTimer(); }
+    function saveFocusNote() { focusNote = document.getElementById('focusNotes').value; saveData(); document.getElementById('noteSavedState').textContent = translations[currentLang].edufocus_saved; }
+
+    function openQuizBuilder() {
+        var builder = document.getElementById('quizBuilderPanel');
+        if (!builder) return;
+        builder.classList.add('active');
+        if (!document.querySelector('.quiz-question')) addQuizQuestion();
+        window.requestAnimationFrame(function() { builder.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    }
+    function closeQuizBuilder() { document.getElementById('quizBuilderPanel').classList.remove('active'); }
+    function addQuizQuestion() {
+        var t = translations[currentLang];
+        var index = document.querySelectorAll('.quiz-question').length + 1;
+        document.getElementById('quizQuestions').insertAdjacentHTML('beforeend', '<div class="quiz-question"><div class="question-head"><strong>' + t.edufocus_question + ' ' + index + '</strong><button type="button" class="btn-icon remove-question" title="' + t.close + '"><i class="fas fa-trash"></i></button></div><input class="question-prompt" type="text" placeholder="' + t.edufocus_question_placeholder + '"><div class="question-options"><input type="text" placeholder="' + t.edufocus_option_one + '"><input type="text" placeholder="' + t.edufocus_option_two + '"><input type="text" placeholder="' + t.edufocus_option_three + '"><input type="text" placeholder="' + t.edufocus_option_four + '"></div><label class="correct-answer">' + t.edufocus_correct_answer + ' <select><option value="0">' + t.edufocus_first + '</option><option value="1">' + t.edufocus_second + '</option><option value="2">' + t.edufocus_third + '</option><option value="3">' + t.edufocus_fourth + '</option></select></label></div>');
+        document.querySelectorAll('.remove-question').forEach(function(button) { button.onclick = function() { button.closest('.quiz-question').remove(); }; });
+    }
+
+    function saveFocusQuiz() {
+        var title = document.getElementById('quizTitle').value.trim();
+        var questions = Array.from(document.querySelectorAll('.quiz-question')).map(function(item) { return { prompt: item.querySelector('.question-prompt').value.trim(), options: Array.from(item.querySelectorAll('.question-options input')).map(function(input) { return input.value.trim(); }), correct: item.querySelector('select').value }; }).filter(function(item) { return item.prompt; });
+        if (!title || !questions.length) { showToast(translations[currentLang].edufocus_missing, translations[currentLang].edufocus_missing_desc, 'warning'); return; }
+        focusQuizzes.unshift({ id: generateId(), title: title, subject: document.getElementById('quizSubject').value.trim(), questions: questions, createdAt: new Date().toISOString() });
+        saveData(); renderFocusQuizzes(); document.getElementById('quizTitle').value = ''; document.getElementById('quizSubject').value = ''; document.getElementById('quizQuestions').innerHTML = ''; closeQuizBuilder(); showToast(translations[currentLang].edufocus_saved_title, translations[currentLang].edufocus_saved_desc, 'success');
+    }
+
+    function renderFocusQuizzes() {
+        var list = document.getElementById('quizList'); var count = document.getElementById('quizCount');
+        if (!list || !count) return;
+        count.textContent = focusQuizzes.length;
+        list.innerHTML = focusQuizzes.length ? focusQuizzes.map(function(quiz) { return '<div class="quiz-list-item"><div><strong>' + escapeHtml(quiz.title) + '</strong><small>' + escapeHtml(quiz.subject || translations[currentLang].edufocus_quizzes) + ' · ' + quiz.questions.length + '</small></div><button class="btn-icon delete-quiz" data-id="' + escapeHtml(quiz.id) + '" title="' + translations[currentLang].close + '"><i class="fas fa-trash"></i></button></div>'; }).join('') : '<div class="empty-state-sm">' + translations[currentLang].edufocus_no_quizzes + '</div>';
+        list.querySelectorAll('.delete-quiz').forEach(function(button) { button.onclick = function() { focusQuizzes = focusQuizzes.filter(function(quiz) { return quiz.id !== button.dataset.id; }); saveData(); renderFocusQuizzes(); }; });
     }
 
     // Navigation
@@ -1162,6 +1446,7 @@
             schedule: { title: 'page_schedule', subtitle: 'schedule_subtitle' },
             calendar: { title: 'page_calendar', subtitle: 'calendar_subtitle' },
             pomodoro: { title: 'pomodoro_subtitle', subtitle: 'pomodoro_desc' },
+            edufocus: { title: 'edufocus_title', subtitle: 'edufocus_subtitle' },
             achievements: { title: 'page_achievements', subtitle: 'achievements_subtitle' },
             tasktracking: { title: 'page_tasktracking', subtitle: 'tasktracking_subtitle' },
             parent: { title: 'page_parent', subtitle: 'parent_subtitle' },
@@ -1178,6 +1463,9 @@
         
         var sidebar = document.getElementById('sidebar');
         if (sidebar) sidebar.classList.remove('active');
+        if (page === 'edufocus') {
+            window.requestAnimationFrame(resizeDrawingCanvas);
+        }
     }
 
     // Updates Stats

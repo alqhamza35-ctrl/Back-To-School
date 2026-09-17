@@ -2,6 +2,62 @@
    Back to School - Main Stylesheet
    ======================================== */
 
+.edufocus-heading { align-items: flex-start; }
+.edufocus-heading p { color: var(--text-secondary); margin-top: 4px; }
+.edufocus-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 20px; align-items: start; }
+.edufocus-workspace, .focus-panel, .quiz-builder-panel { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: 0 12px 28px var(--shadow-color); }
+.canvas-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border-color); }
+.file-picker, .canvas-tool, .range-control { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0 11px; background: var(--bg-input); color: var(--text-secondary); cursor: pointer; font-family: inherit; font-size: 13px; }
+.file-picker:hover, .canvas-tool:hover, .canvas-tool.active { border-color: var(--primary-light); color: var(--text-primary); background: var(--bg-hover); }
+.file-picker input { display: none; }
+.toolbar-divider { width: 1px; height: 26px; background: var(--border-color); }
+.canvas-toolbar input[type="color"] { width: 36px; height: 36px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 3px; background: var(--bg-input); cursor: pointer; }
+.range-control input { width: 86px; accent-color: var(--primary); }
+.file-status { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 8px 14px; color: var(--text-secondary); font-size: 13px; }
+.canvas-stage { position: relative; min-height: 520px; margin: 0 12px 12px; overflow: hidden; border: 1px dashed var(--border-color); border-radius: var(--radius-md); background: #f8fafc; }
+.document-viewer { position: absolute; inset: 0; overflow: auto; z-index: 1; color: #243042; }
+.document-viewer canvas { display: block; max-width: 100%; margin: 22px auto; box-shadow: 0 5px 18px rgba(0,0,0,.15); }
+.viewer-placeholder { min-height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; color: #64748b; text-align: center; }
+.viewer-placeholder i { font-size: 42px; color: #94a3b8; }
+.viewer-placeholder strong { font-size: 18px; }
+.viewer-placeholder span { font-size: 13px; }
+.doc-preview { max-width: 760px; min-height: 100%; margin: auto; padding: 34px; background: white; color: #1f2937; line-height: 1.8; }
+.document-viewer table { width: 94%; margin: 20px auto; border-collapse: collapse; background: white; color: #1f2937; font-size: 13px; }
+.document-viewer td, .document-viewer th { border: 1px solid #cbd5e1; padding: 7px; }
+#drawingCanvas, .text-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+#drawingCanvas { z-index: 3; cursor: crosshair; touch-action: none; }
+.text-layer { z-index: 4; pointer-events: none; }
+.canvas-text-note { position: absolute; pointer-events: auto; width: 180px; min-height: 54px; padding: 8px; border: 2px solid var(--primary); border-radius: 6px; resize: both; color: #172033; background: rgba(255,255,255,.92); font: 14px Tajawal, sans-serif; }
+.edufocus-sidebar { display: grid; gap: 14px; }
+.focus-panel { padding: 16px; }
+.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; }
+.panel-title i { color: var(--primary-light); margin-left: 5px; }
+.focus-mode, .quiz-count { color: var(--secondary); font-size: 12px; }
+.focus-timer { padding: 18px 0 12px; text-align: center; font-size: 42px; font-weight: 800; letter-spacing: 1px; color: var(--text-primary); }
+.timer-actions { display: flex; align-items: center; gap: 7px; }
+.timer-actions .btn { flex: 1; padding: 9px 8px; font-size: 12px; }
+.focus-minutes { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; color: var(--text-secondary); font-size: 13px; }
+.focus-minutes input { width: 70px; padding: 7px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-input); color: var(--text-primary); }
+.notes-panel textarea { width: 100%; min-height: 130px; margin-top: 14px; padding: 10px; resize: vertical; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-family: inherit; }
+.notes-panel small { display: block; margin-top: 7px; color: var(--text-muted); }
+.quiz-list-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 0; border-bottom: 1px solid var(--border-color); }
+.quiz-list-item strong, .quiz-list-item small { display: block; }
+.quiz-list-item strong { font-size: 13px; }
+.quiz-list-item small { margin-top: 2px; color: var(--text-muted); font-size: 11px; }
+.quiz-builder-panel { display: none; margin-top: 20px; padding: 18px; }
+.quiz-builder-panel.active { display: block; animation: edufocus-reveal .25s ease both; }
+.quiz-builder-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+.quiz-builder-grid label, .quiz-question { color: var(--text-secondary); font-size: 13px; }
+.quiz-builder-grid input, .quiz-question input, .correct-answer select { display: block; width: 100%; margin-top: 6px; padding: 10px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-input); color: var(--text-primary); font-family: inherit; }
+.quiz-question { padding: 14px; margin-top: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.question-head { display: flex; justify-content: space-between; align-items: center; }
+.question-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.correct-answer { display: block; max-width: 190px; margin-top: 10px; }
+.quiz-builder-actions { display: flex; gap: 9px; margin-top: 16px; }
+@keyframes edufocus-reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 900px) { .edufocus-layout { grid-template-columns: 1fr; } .edufocus-sidebar { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 620px) { .edufocus-sidebar, .quiz-builder-grid, .question-options { grid-template-columns: 1fr; } .canvas-stage { min-height: 430px; } .edufocus-heading { gap: 12px; } .range-control { width: 100%; justify-content: space-between; } }
+
 /* CSS Variables - Dark Theme (Default) */
 :root {
     --primary: #6c5ce7;
