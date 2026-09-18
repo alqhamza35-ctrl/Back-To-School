@@ -27,6 +27,8 @@
                 history: []
             },
             rewards: [],
+            chat: [],
+            chatSpeak: false,
             parentCode: '',
             notif: { homework: true, exams: true, daily: true },
             lang: 'ar',

@@ -151,7 +151,7 @@ ul { list-style: none; }
 
 /* ---------- Toast ---------- */
 #toastContainer {
-    position: fixed; bottom: 24px; inset-inline-end: 24px; z-index: 500;
+    position: fixed; bottom: 92px; inset-inline-end: 24px; z-index: 500;
     display: flex; flex-direction: column; gap: 10px;
 }
 .toast {
@@ -430,6 +430,68 @@ ul { list-style: none; }
 }
 .quiz-option:hover { border-color: var(--primary); }
 .quiz-option input { accent-color: var(--primary); }
+
+/* ---------- Assistant chat ---------- */
+.chat-card { display: flex; flex-direction: column; gap: 12px; }
+.chat-thread {
+    display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
+    min-height: 240px; max-height: 55vh; padding-inline-end: 6px;
+}
+.msg {
+    max-width: 78%; padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: .94rem; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg.me { align-self: flex-end; background: var(--primary); color: #fff; border-end-end-radius: 3px; }
+.msg.bot { align-self: flex-start; background: var(--surface-2); color: var(--text); border-end-start-radius: 3px; }
+.msg.thinking { color: var(--text-muted); font-style: italic; }
+.msg.act {
+    align-self: stretch; max-width: 100%; padding: 7px 12px; font-size: .82rem; font-weight: 700;
+    background: var(--success-soft); color: var(--success); border-radius: var(--radius-sm);
+}
+.chat-form { display: flex; gap: 10px; }
+.chat-form input {
+    flex: 1; padding: 11px 14px; color: var(--text); font-family: inherit; font-size: .95rem;
+    background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+    transition: border-color .15s, box-shadow .15s;
+}
+.chat-form input:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+@media (max-width: 560px) { .msg { max-width: 90%; } }
+.chat-ico { flex: none; padding-inline: 14px; }
+#chatMicBtn.recording {
+    background: var(--danger); border-color: var(--danger); color: #fff;
+    animation: btsMic 1.2s ease-in-out infinite;
+}
+#chatSpeakBtn.on { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+@keyframes btsMic { 50% { opacity: .55; } }
+
+/* ---------- Floating voice assistant ---------- */
+.voice-dock {
+    position: fixed; bottom: 22px; inset-inline-end: 22px; z-index: 400;
+}
+.voice-fab {
+    width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.25rem; color: #fff; background: linear-gradient(135deg, var(--primary), var(--accent));
+    box-shadow: var(--shadow-lg); transition: transform .15s;
+}
+.voice-fab:hover { transform: scale(1.06); }
+.voice-fab.recording { background: var(--danger); animation: btsMic 1.2s ease-in-out infinite; }
+.voice-panel {
+    position: absolute; bottom: calc(100% + 12px); inset-inline-end: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    width: min(340px, calc(100vw - 44px)); max-height: 46vh;
+    padding: 14px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity .18s, transform .18s;
+}
+.voice-panel.open { opacity: 1; transform: none; pointer-events: auto; }
+.voice-log { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-inline-end: 4px; }
+.voice-log .msg { max-width: 92%; padding: 8px 11px; font-size: .88rem; line-height: 1.6; }
+.voice-row { display: flex; align-items: center; gap: 8px; }
+body[data-page="assistant"] .voice-dock { display: none; }
 
 /* ---------- Parent (student side) ---------- */
 .code-display {

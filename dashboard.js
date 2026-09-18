@@ -70,26 +70,30 @@
             try { new Notification(title, { body: body }); } catch (e) { /* ignore */ }
         },
 
+        go: function (page) { navigate(page); },
+
         rerenderAll: function () {
             I18N.apply();
-            Planner.renderAll(); Quiz.render(); Game.render(); Focus.render(); renderParentPage(); fillRoutineForm();
+            Planner.renderAll(); Quiz.render(); Game.render(); Focus.render(); Chat.render(); renderParentPage(); fillRoutineForm();
         }
     };
 
     // ---------- routing ----------
     function navigate(page) {
+        document.body.dataset.page = page;
         document.querySelectorAll('.page').forEach(function (p) {
             p.classList.toggle('active', p.id === 'page-' + page);
         });
         document.querySelectorAll('.nav-item').forEach(function (n) {
             n.classList.toggle('active', n.dataset.page === page);
         });
-        var titles = { overview: 'nav_overview', classes: 'classes_title', homework: 'homework_title', exams: 'exams_title', quiz: 'quiz_title', schedule: 'schedule_title', calendar: 'calendar_title', focus: 'focus_title', achievements: 'ach_title', parent: 'parent_title', settings: 'settings_title' };
+        var titles = { overview: 'nav_overview', classes: 'classes_title', homework: 'homework_title', exams: 'exams_title', quiz: 'quiz_title', schedule: 'schedule_title', calendar: 'calendar_title', focus: 'focus_title', assistant: 'assistant_title', achievements: 'ach_title', parent: 'parent_title', settings: 'settings_title' };
         var h1 = document.querySelector('#pageTitle h1');
         if (h1) h1.textContent = t(titles[page] || 'app_name');
         document.getElementById('sidebar').classList.remove('active');
         document.getElementById('sidebarBackdrop').classList.remove('show');
         if (page === 'focus') Focus.render();
+        Chat.render();
         if (page === 'achievements') Game.render();
     }
 
@@ -144,6 +148,16 @@
             b.addEventListener('click', function () { Planner.setHwFilter(b.dataset.filter); });
         });
         on('generateScheduleBtn', 'click', function () { Planner.generate(); });
+        on('aiPlanBtn', 'click', function (e) { AI.plan(e.currentTarget); });
+        on('aiPlanBtnHome', 'click', function (e) { AI.plan(e.currentTarget); });
+        on('chatForm', 'submit', function (e) { Chat.send(e); });
+        on('chatClearBtn', 'click', function () { Chat.clear(); });
+        on('chatMicBtn', 'click', function () { Chat.mic(); });
+        on('chatSpeakBtn', 'click', function () { Chat.toggleSpeak(); });
+        on('voiceFab', 'click', function () { Chat.mic(); });
+        on('voiceSpeakBtn', 'click', function () { Chat.toggleSpeak(); });
+        on('voiceCloseBtn', 'click', function () { Chat.togglePanel(false); });
+        on('voiceOpenBtn', 'click', function () { Chat.togglePanel(false); navigate('assistant'); });
         on('calPrev', 'click', function () { Planner.prevMonth(); });
         on('calNext', 'click', function () { Planner.nextMonth(); });
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob:; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com; worker-src 'self' https://www.gstatic.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob:; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://fcmregistrations.googleapis.com https://fcm.googleapis.com https://generativelanguage.googleapis.com; worker-src 'self' https://www.gstatic.com;">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta http-equiv="X-Frame-Options" content="DENY">
     <title data-i18n="app_name">العودة للمدرسة</title>
@@ -31,6 +31,7 @@
                 <a href="#" class="nav-item" data-page="schedule"><i class="fas fa-calendar-day"></i> <span data-i18n="nav_schedule">الجدول اليومي</span></a>
                 <a href="#" class="nav-item" data-page="calendar"><i class="fas fa-calendar"></i> <span data-i18n="nav_calendar">التقويم</span></a>
                 <a href="#" class="nav-item" data-page="focus"><i class="fas fa-clock"></i> <span data-i18n="nav_focus">مؤقت المذاكرة</span></a>
+                <a href="#" class="nav-item" data-page="assistant"><i class="fas fa-robot"></i> <span data-i18n="nav_assistant">المساعد</span></a>
                 <a href="#" class="nav-item" data-page="achievements"><i class="fas fa-trophy"></i> <span data-i18n="nav_achievements">الإنجازات</span></a>
                 <a href="#" class="nav-item" data-page="parent"><i class="fas fa-users"></i> <span data-i18n="nav_parent">لوحة الوالدين</span></a>
                 <a href="#" class="nav-item" data-page="settings"><i class="fas fa-cog"></i> <span data-i18n="nav_settings">الإعدادات</span></a>
@@ -69,6 +70,7 @@
                             <div style="display:grid; gap:10px">
                                 <button class="btn btn-primary" data-nav="homework" data-open="modalHomework"><i class="fas fa-plus"></i> <span data-i18n="add_homework">إضافة واجب</span></button>
                                 <button class="btn btn-accent" data-nav="schedule"><i class="fas fa-wand-magic-sparkles"></i> <span data-i18n="auto_generate">توليد تلقائي</span></button>
+                                <button class="btn btn-primary" id="aiPlanBtnHome"><i class="fas fa-robot"></i> <span data-i18n="ai_plan">تنظيم اليوم</span></button>
                                 <button class="btn btn-ghost" data-nav="focus"><i class="fas fa-stopwatch"></i> <span data-i18n="focus_title">مؤقت المذاكرة</span></button>
                                 <button class="btn btn-ghost" data-nav="parent"><i class="fas fa-users"></i> <span data-i18n="parent_title">لوحة الوالدين</span></button>
                             </div>
@@ -114,12 +116,31 @@
                 <section class="page" id="page-schedule">
                     <div class="page-head"><h2 data-i18n="schedule_title">الجدول اليومي</h2>
                         <div class="filters">
+                            <button class="btn btn-primary" id="aiPlanBtn"><i class="fas fa-robot"></i> <span data-i18n="ai_plan">تنظيم اليوم</span></button>
                             <button class="btn btn-accent" id="generateScheduleBtn"><i class="fas fa-wand-magic-sparkles"></i> <span data-i18n="auto_generate">توليد تلقائي</span></button>
                             <button class="btn btn-primary" data-open="modalScheduleItem"><i class="fas fa-plus"></i> <span data-i18n="add_item">إضافة بند</span></button>
                         </div>
                     </div>
                     <p class="hint" style="margin-bottom:12px" data-i18n="generate_hint">يُنشأ الجدول من أوقاتك وموادك وواجباتك</p>
                     <div class="item-list" id="scheduleList"></div>
+                </section>
+
+                <!-- Assistant chat -->
+                <section class="page" id="page-assistant">
+                    <div class="page-head"><h2 data-i18n="assistant_title">المساعد الدراسي</h2>
+                        <div class="filters">
+                            <button class="btn btn-ghost" id="chatClearBtn"><i class="fas fa-broom"></i> <span data-i18n="chat_clear">تفريغ المحادثة</span></button>
+                        </div>
+                    </div>
+                    <div class="card chat-card">
+                        <div class="chat-thread" id="chatThread"></div>
+                        <form class="chat-form" id="chatForm" novalidate>
+                            <input type="text" id="chatInput" autocomplete="off" data-i18n-placeholder="chat_placeholder" placeholder="اكتب سؤالك…">
+                            <button type="button" class="btn btn-ghost chat-ico" id="chatMicBtn" data-i18n-title="chat_mic" title="تحدّث"><i class="fas fa-microphone"></i></button>
+                            <button type="button" class="btn btn-ghost chat-ico" id="chatSpeakBtn" data-i18n-title="chat_speak" title="قراءة الردود"><i class="fas fa-volume-high"></i></button>
+                            <button type="submit" class="btn btn-primary" id="chatSendBtn"><i class="fas fa-paper-plane"></i> <span data-i18n="chat_send">إرسال</span></button>
+                        </form>
+                    </div>
                 </section>
 
                 <!-- Calendar -->
@@ -346,11 +367,25 @@
 
     <div id="toastContainer"></div>
 
+    <!-- Floating voice assistant — visible on every dashboard page -->
+    <div class="voice-dock" id="voiceDock">
+        <div class="voice-panel" id="voicePanel">
+            <div class="voice-log" id="voiceLog"></div>
+            <div class="voice-row">
+                <button type="button" class="btn btn-ghost chat-ico" id="voiceSpeakBtn" data-i18n-title="chat_speak" title="اقرأ الرد بصوت"><i class="fas fa-volume-high"></i></button>
+                <button type="button" class="btn btn-ghost btn-sm" id="voiceOpenBtn"><i class="fas fa-arrow-up-right-from-square"></i> <span data-i18n="chat_open">المساعد</span></button>
+                <button type="button" class="btn btn-ghost chat-ico" id="voiceCloseBtn" data-i18n-title="close" title="إغلاق"><i class="fas fa-xmark"></i></button>
+            </div>
+        </div>
+        <button type="button" class="voice-fab" id="voiceFab" data-i18n-title="chat_mic" title="تحدّث"><i class="fas fa-microphone"></i></button>
+    </div>
+
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
     <script src="firebase-config.js"></script>
+    <script src="ai-config.js"></script>
     <script src="i18n.js"></script>
     <script src="state.js"></script>
     <script src="store.js"></script>
@@ -358,6 +393,8 @@
     <script src="planner.js"></script>
     <script src="quiz.js"></script>
     <script src="focus.js"></script>
+    <script src="ai.js"></script>
+    <script src="chat.js"></script>
     <script src="dashboard.js"></script>
 </body>
 </html>
