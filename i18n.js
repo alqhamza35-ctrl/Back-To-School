@@ -45,6 +45,7 @@
             ai_plan: 'تنظيم اليوم', ai_loading: 'جارٍ التنظيم…',
             ai_done: 'تم تنظيم يومك', ai_err: 'تعذّر تنظيم اليوم. تحقق من الاتصال والمفتاح.',
             ai_no_key: 'أضف مفتاح Gemini في ملف ai-config.js ثم أعد التحميل',
+            ai_key_bad: 'مفتاح Gemini مرفوض (401). أنشئ مفتاحاً جديداً من AI Studio وضعه في ai-config.js ثم أعد التحميل',
             // assistant chat
             nav_assistant: 'المساعد', assistant_title: 'المساعد الدراسي',
             chat_placeholder: 'اكتب سؤالك…', chat_send: 'إرسال', chat_clear: 'تفريغ المحادثة',
@@ -155,6 +156,7 @@
             ai_plan: 'Plan my day', ai_loading: 'Planning…',
             ai_done: 'Your day is planned', ai_err: 'Could not plan the day. Check connection and key.',
             ai_no_key: 'Add your Gemini key in ai-config.js, then reload',
+            ai_key_bad: 'Gemini key rejected (401). Create a new key in AI Studio, put it in ai-config.js, then reload',
             nav_assistant: 'Assistant', assistant_title: 'Study Assistant',
             chat_placeholder: 'Ask something…', chat_send: 'Send', chat_clear: 'Clear chat',
             chat_empty: 'Tell it what you need: «add chemistry homework chapter 5 due Friday», «open my schedule», «plan my day»', chat_thinking: 'Thinking…',

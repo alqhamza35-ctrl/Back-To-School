@@ -367,7 +367,8 @@
             }
             if (res.text) { push('model', res.text.slice(0, 2000)); State.save(); speak(res.text.slice(0, 2000)); }
         }).catch(function (err) {
-            window.Dash.toast(t('chat_err') + (err && err.message ? ' (' + window.Dash.esc(err.message) + ')' : ''), 'error');
+            var why = window.AI.isKeyError(err) ? t('ai_key_bad') : t('chat_err') + ' (' + (err && err.message ? err.message : '?') + ')';
+            window.Dash.toast(why, 'error');
         }).then(function () {
             busy = false;
             render();

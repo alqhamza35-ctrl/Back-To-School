@@ -89,7 +89,9 @@
             return res.text().then(function (txt) {
                 if (!res.ok) {
                     var err = new Error('gemini ' + res.status);
-                    err.retryable = res.status === 404 || res.status === 429 || res.status >= 500;
+                    err.status = res.status;
+                    err.keyBad = res.status === 401 || res.status === 403;
+                    err.retryable = !err.keyBad && (res.status === 404 || res.status === 429 || res.status >= 500);
                     throw err;
                 }
                 var json = JSON.parse(txt);
@@ -136,6 +138,7 @@
     window.AI = {
         ready: function () { return !!(cfg().apiKey); },
         context: contextText,
+        isKeyError: function (err) { return !!(err && err.keyBad); },
 
         ask: function (systemText, contents) {
             return send(body(systemText, contents, false)).then(textOf);
@@ -196,7 +199,7 @@
                 Planner.renderOverview();
                 window.Dash.toast(t('ai_done'), 'success');
             }).catch(function (err) {
-                window.Dash.toast(t('ai_err') + ' (' + window.Dash.esc(failDetail(err)) + ')', 'error');
+                window.Dash.toast(window.AI.isKeyError(err) ? t('ai_key_bad') : t('ai_err') + ' (' + failDetail(err) + ')', 'error');
             }).then(function () {
                 busy = false;
                 if (btn) btn.disabled = false;
