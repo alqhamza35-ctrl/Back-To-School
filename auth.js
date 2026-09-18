@@ -1,491 +1,233 @@
-// ========================================
-// Back to School - Authentication Module
-// ========================================
-
-(function() {
+// Back to School — authentication (login + signup pages)
+// Local credential store with SHA-256 salted hashes, Firebase Auth mirrored
+// when reachable so the account can carry a cloudId for Firestore sync.
+(function () {
     'use strict';
 
-    var currentLang = localStorage.getItem('bts_lang') || 'ar';
-    var authTranslations = {
-        ar: {
-            err_invalid_email: 'البريد الإلكتروني غير صالح.',
-            err_locked: 'تم حظر الحساب مؤقتاً. حاول مرة أخرى بعد ',
-            err_locked_min: ' دقيقة.',
-            err_wrong_credentials: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
-            err_attempts_remaining: ' محاولات متبقية.',
-            err_device_bound: 'هذا الحساب مرتبط بجهاز آخر.',
-            err_name_length: 'يجب أن يكون الاسم بين 2 و 50 حرف.',
-            err_password_short: 'يجب أن تكون كلمة المرور 6 أحرف على الأقل.',
-            err_password_long: 'كلمة المرور طويلة جداً (الحد الأقصى 128 حرف).',
-            err_passwords_no_match: 'كلمتا المرور غير متطابقتين.',
-            err_email_taken: 'البريد الإلكتروني مسجل بالفعل.',
-            pw_weak: 'ضعيفة',
-            pw_medium: 'متوسطة',
-            pw_strong: 'قوية',
-            pw_strength: 'قوة كلمة المرور: '
-        },
-        en: {
-            err_invalid_email: 'Invalid email address.',
-            err_locked: 'Account temporarily locked. Try again in ',
-            err_locked_min: ' minutes.',
-            err_wrong_credentials: 'Invalid email or password.',
-            err_attempts_remaining: ' attempts remaining.',
-            err_device_bound: 'This account is linked to another device.',
-            err_name_length: 'Name must be between 2 and 50 characters.',
-            err_password_short: 'Password must be at least 6 characters.',
-            err_password_long: 'Password is too long (max 128 characters).',
-            err_passwords_no_match: 'Passwords do not match.',
-            err_email_taken: 'Email is already registered.',
-            pw_weak: 'Weak',
-            pw_medium: 'Medium',
-            pw_strong: 'Strong',
-            pw_strength: 'Password strength: '
+    var USERS_KEY = 'bts:v1:users';
+    var SESSION_KEY = 'bts:v1:session';
+    var DEVICE_KEY = 'bts:v1:device';
+    var ATTEMPTS_KEY = 'bts:v1:attempts';
+    var MAX_ATTEMPTS = 5;
+    var LOCKOUT_MS = 5 * 60 * 1000;
+
+    function t(key) { return window.I18N ? window.I18N.t(key) : key; }
+
+    function getUsers() {
+        try {
+            var u = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+            return Array.isArray(u) ? u : [];
+        } catch (e) { return []; }
+    }
+    function saveUsers(users) { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
+
+    function getDeviceId() {
+        var id = localStorage.getItem(DEVICE_KEY);
+        if (!id) {
+            id = 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            localStorage.setItem(DEVICE_KEY, id);
         }
-    };
-    function t(key) { return authTranslations[currentLang][key] || authTranslations['ar'][key]; }
+        return id;
+    }
 
-    // Security config
-    const MAX_LOGIN_ATTEMPTS = 5;
-    const LOCKOUT_TIME = 5 * 60 * 1000; // 5 minutes
-    const SALT_LENGTH = 32;
+    async function hashPassword(password, salt) {
+        var data = new TextEncoder().encode(salt + password);
+        var buf = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
+    function generateSalt() {
+        var a = new Uint8Array(32);
+        crypto.getRandomValues(a);
+        return Array.from(a).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
 
-    // Check if already logged in
-    const currentUser = localStorage.getItem('currentUser');
-    if (currentUser) {
+    function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
+
+    // ---------- rate limiting ----------
+    function lockMinutes(email) {
+        try {
+            var d = JSON.parse(localStorage.getItem(ATTEMPTS_KEY) || '{}')[email];
+            if (d && d.count >= MAX_ATTEMPTS && Date.now() - d.last < LOCKOUT_MS) {
+                return Math.ceil((LOCKOUT_MS - (Date.now() - d.last)) / 60000);
+            }
+        } catch (e) { /* ignore */ }
+        return 0;
+    }
+    function recordAttempt(email, ok) {
+        var all;
+        try { all = JSON.parse(localStorage.getItem(ATTEMPTS_KEY) || '{}'); } catch (e) { all = {}; }
+        if (ok) delete all[email];
+        else all[email] = { count: (all[email] ? all[email].count : 0) + 1, last: Date.now() };
+        localStorage.setItem(ATTEMPTS_KEY, JSON.stringify(all));
+    }
+
+    function showError(msg) {
+        var el = document.getElementById('authError');
+        if (!el) return;
+        el.textContent = msg;
+        el.classList.add('show');
+    }
+
+    function startSession(user) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id }));
+        window.location.href = 'dashboard.html';
+    }
+
+    // Mirror credentials to Firebase without blocking the local flow.
+    function mirrorFirebase(user, password, isSignup) {
+        if (!window.BtsCloud || !window.BtsCloud.ready) return;
+        var done = function (fbUser) {
+            if (!fbUser) return;
+            var users = getUsers();
+            var idx = users.findIndex(function (u) { return u.id === user.id; });
+            if (idx === -1) return;
+            users[idx].cloudId = fbUser.uid;
+            saveUsers(users);
+            window.BtsCloud.saveProfile(fbUser.uid, {
+                displayName: user.displayName,
+                email: user.email,
+                parentCode: users[idx].parentCode || ''
+            }).catch(function () { /* rules may deny; retried from dashboard */ });
+        };
+        if (isSignup) {
+            window.BtsCloud.signUp(user.email, password, user.displayName).then(done)
+                .catch(function (err) { console.warn('Firebase sign-up skipped:', err.code || err.message); });
+        } else {
+            window.BtsCloud.signIn(user.email, password).then(function (cred) { done(cred.user); })
+                .catch(function (err) { console.warn('Firebase sign-in skipped:', err.code || err.message); });
+        }
+    }
+
+    // Already signed in?
+    if (localStorage.getItem(SESSION_KEY)) {
         window.location.href = 'dashboard.html';
         return;
     }
 
-    // ========================================
-    // Password Hashing (SHA-256 with salt)
-    // ========================================
-    async function hashPassword(password, salt) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(salt + password);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    function generateSalt() {
-        const array = new Uint8Array(SALT_LENGTH);
-        crypto.getRandomValues(array);
-        return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    // ========================================
-    // Rate Limiting
-    // ========================================
-    function getLoginAttempts(email) {
-        try {
-            const data = JSON.parse(localStorage.getItem('bts_login_attempts') || '{}');
-            return data[email] || { count: 0, lastAttempt: 0 };
-        } catch (e) {
-            return { count: 0, lastAttempt: 0 };
-        }
-    }
-
-    function recordLoginAttempt(email, success) {
-        try {
-            const data = JSON.parse(localStorage.getItem('bts_login_attempts') || '{}');
-            if (success) {
-                delete data[email];
-            } else {
-                const current = data[email] || { count: 0, lastAttempt: 0 };
-                data[email] = {
-                    count: current.count + 1,
-                    lastAttempt: Date.now()
-                };
-            }
-            localStorage.setItem('bts_login_attempts', JSON.stringify(data));
-        } catch (e) {}
-    }
-
-    function isLockedOut(email) {
-        const attempts = getLoginAttempts(email);
-        if (attempts.count >= MAX_LOGIN_ATTEMPTS) {
-            const elapsed = Date.now() - attempts.lastAttempt;
-            if (elapsed < LOCKOUT_TIME) {
-                const remaining = Math.ceil((LOCKOUT_TIME - elapsed) / 60000);
-                return { locked: true, remaining: remaining };
-            }
-        }
-        return { locked: false };
-    }
-
-    // ========================================
-    // Input Sanitization
-    // ========================================
-    function sanitizeInput(str) {
-        if (typeof str !== 'string') return '';
-        return str
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#x27;')
-            .replace(/\//g, '&#x2F;')
-            .trim();
-    }
-
-    function validateEmail(email) {
-        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return re.test(email);
-    }
-
-    // ========================================
-    // Login Form
-    // ========================================
-    const loginForm = document.getElementById('loginForm');
+    // ---------- Login ----------
+    var loginForm = document.getElementById('loginForm');
     if (loginForm) {
-        loginForm.addEventListener('submit', async function(e) {
+        loginForm.addEventListener('submit', async function (e) {
             e.preventDefault();
+            var email = document.getElementById('email').value.trim().toLowerCase();
+            var password = document.getElementById('password').value;
+            if (!validEmail(email)) return showError(t('err_invalid_email'));
+            var mins = lockMinutes(email);
+            if (mins) return showError(t('err_locked') + mins + t('err_locked_min'));
 
-            const emailInput = document.getElementById('email');
-            const passwordInput = document.getElementById('password');
-            const errorMessage = document.getElementById('errorMessage');
-
-            const email = sanitizeInput(emailInput.value.trim());
-            const password = passwordInput.value;
-
-            errorMessage.textContent = '';
-
-            // Validate email
-            if (!validateEmail(email)) {
-                errorMessage.textContent = t('err_invalid_email');
-                return;
+            var users = getUsers();
+            var user = users.find(function (u) { return u.email === email; });
+            var ok = false;
+            if (user) {
+                var hash = await hashPassword(password, user.salt);
+                ok = hash === user.passwordHash;
             }
-
-            // Check rate limiting
-            const lockStatus = isLockedOut(email);
-            if (lockStatus.locked) {
-                errorMessage.textContent = t('err_locked') + lockStatus.remaining + t('err_locked_min');
-                return;
-            }
-
-            // Get users from localStorage
-            let users = [];
-            try {
-                const storedUsers = localStorage.getItem('bts_users');
-                if (storedUsers) {
-                    users = JSON.parse(storedUsers);
-                    if (!Array.isArray(users)) {
-                        users = [];
-                    }
-                }
-            } catch (e) {
-                users = [];
-            }
-
-            // Find user by email first, then verify password hash
-            const userIndex = users.findIndex(u => u.email === email);
-
-            if (userIndex === -1) {
-                recordLoginAttempt(email, false);
-                errorMessage.textContent = t('err_wrong_credentials');
-                return;
-            }
-
-            const user = users[userIndex];
-            let passwordValid = false;
-
-            // Support both hashed and legacy plain-text passwords
-            if (user.salt && user.passwordHash) {
-                const hash = await hashPassword(password, user.salt);
-                passwordValid = hash === user.passwordHash;
-            } else {
-                // Legacy: plain text comparison (one-time migration)
-                passwordValid = user.password === password;
-                if (passwordValid) {
-                    // Migrate to hashed password
-                    const salt = generateSalt();
-                    user.salt = salt;
-                    user.passwordHash = await hashPassword(password, salt);
-                    delete user.password;
-                    users[userIndex] = user;
-                    localStorage.setItem('bts_users', JSON.stringify(users));
+            if (!ok && window.BtsCloud && window.BtsCloud.ready && !user) {
+                // Cloud-only account on a new device: sign in remotely then mirror locally.
+                try {
+                    var cred = await window.BtsCloud.signIn(email, password);
+                    var fbUser = cred.user;
+                    var rec = {
+                        id: fbUser.uid, cloudId: fbUser.uid, email: email,
+                        displayName: fbUser.displayName || email.split('@')[0],
+                        salt: generateSalt(), passwordHash: await hashPassword(password, ''),
+                        deviceId: getDeviceId(), createdAt: new Date().toISOString(),
+                        parentCode: '', firstLogin: true
+                    };
+                    rec.passwordHash = await hashPassword(password, rec.salt);
+                    users.push(rec);
+                    saveUsers(users);
+                    recordAttempt(email, true);
+                    startSession(rec);
+                    return;
+                } catch (err) {
+                    recordAttempt(email, false);
+                    showError(t('err_wrong_credentials'));
+                    return;
                 }
             }
-
-            if (!passwordValid) {
-                recordLoginAttempt(email, false);
-                const attempts = getLoginAttempts(email);
-                const remaining = MAX_LOGIN_ATTEMPTS - attempts.count;
-                if (remaining > 0 && remaining <= 2) {
-                    errorMessage.textContent = t('err_wrong_credentials') + t('err_attempts_remaining') + remaining;
-                } else {
-                    errorMessage.textContent = t('err_wrong_credentials');
-                }
-                return;
+            if (!ok) {
+                recordAttempt(email, false);
+                return showError(t('err_wrong_credentials'));
             }
+            if (user.deviceId && user.deviceId !== getDeviceId()) return showError(t('err_device'));
+            user.deviceId = getDeviceId();
+            var sIdx = users.findIndex(function (u) { return u.id === user.id; });
+            users[sIdx] = user;
+            saveUsers(users);
+            recordAttempt(email, true);
+            mirrorFirebase(user, password, false);
+            startSession(user);
+        });
 
-            // Success - clear rate limit
-            recordLoginAttempt(email, true);
-
-            // Check device binding
-            const deviceId = getDeviceId();
-            if (user.deviceId && user.deviceId !== deviceId) {
-                errorMessage.textContent = t('err_device_bound');
-                return;
-            }
-
-            // Update device binding
-            user.deviceId = deviceId;
-            users[userIndex] = user;
-            localStorage.setItem('bts_users', JSON.stringify(users));
-
-            // Remove sensitive fields from session
-            const sessionUser = Object.assign({}, user);
-            delete sessionUser.salt;
-            delete sessionUser.passwordHash;
-            delete sessionUser.password;
-
-            // Save current user session
-            localStorage.setItem('currentUser', JSON.stringify(sessionUser));
-
-            // Firebase Auth sign in (background, non-blocking)
-            if (typeof firebase !== 'undefined' && firebase.auth) {
-                firebase.auth().signInWithEmailAndPassword(email, password).then(function() {
-                    console.log('Firebase sign-in successful');
-                    // Sync data from cloud after sign-in
-                    if (typeof DataSync !== 'undefined') {
-                        DataSync.syncFromCloud(user.id).catch(function(err) {
-                            console.warn('Cloud sync failed:', err);
-                        });
-                        DataSync.startAutoSync(user.id);
-                    }
-                    // Get FCM token
-                    if (typeof FCM !== 'undefined') {
-                        FCM.requestPermission();
-                    }
-                }).catch(function(err) {
-                    console.warn('Firebase sign-in failed (localStorage login still works):', err.message);
-                });
-            }
-
-            // Redirect to dashboard
-            window.location.href = 'dashboard.html';
+        var forgot = document.getElementById('forgotPw');
+        if (forgot) forgot.addEventListener('click', function (e) {
+            e.preventDefault();
+            var email = document.getElementById('email').value.trim().toLowerCase();
+            if (!validEmail(email)) return showError(t('err_invalid_email'));
+            if (!window.BtsCloud || !window.BtsCloud.ready) return showError(t('err_generic'));
+            window.BtsCloud.sendReset(email).then(function () { showError(''); var el = document.getElementById('authError'); el.classList.add('show'); el.style.color = 'var(--success)'; el.textContent = t('pw_reset_sent'); })
+                .catch(function () { showError(t('err_generic')); });
         });
     }
 
-    // ========================================
-    // Signup Form
-    // ========================================
-    const signupForm = document.getElementById('signupForm');
+    // ---------- Signup ----------
+    var signupForm = document.getElementById('signupForm');
     if (signupForm) {
-        signupForm.addEventListener('submit', async function(e) {
+        signupForm.addEventListener('submit', async function (e) {
             e.preventDefault();
+            var displayName = document.getElementById('displayName').value.trim();
+            var email = document.getElementById('email').value.trim().toLowerCase();
+            var password = document.getElementById('password').value;
+            var confirm = document.getElementById('confirmPassword').value;
 
-            const displayNameInput = document.getElementById('displayName');
-            const emailInput = document.getElementById('email');
-            const passwordInput = document.getElementById('password');
-            const confirmPasswordInput = document.getElementById('confirmPassword');
-            const errorMessage = document.getElementById('errorMessage');
+            if (displayName.length < 2 || displayName.length > 50) return showError(t('err_name_length'));
+            if (!validEmail(email)) return showError(t('err_invalid_email'));
+            if (password.length < 6) return showError(t('err_pw_short'));
+            if (password !== confirm) return showError(t('err_pw_match'));
 
-            const displayName = sanitizeInput(displayNameInput.value.trim());
-            const email = sanitizeInput(emailInput.value.trim());
-            const password = passwordInput.value;
-            const confirmPassword = confirmPasswordInput.value;
+            var users = getUsers();
+            if (users.find(function (u) { return u.email === email; })) return showError(t('err_email_taken'));
 
-            errorMessage.textContent = '';
-
-            // Validate displayName
-            if (displayName.length < 2 || displayName.length > 50) {
-                errorMessage.textContent = t('err_name_length');
-                return;
-            }
-
-            // Validate email
-            if (!validateEmail(email)) {
-                errorMessage.textContent = t('err_invalid_email');
-                return;
-            }
-
-            // Validate password
-            if (password.length < 6) {
-                errorMessage.textContent = t('err_password_short');
-                return;
-            }
-
-            if (password.length > 128) {
-                errorMessage.textContent = t('err_password_long');
-                return;
-            }
-
-            if (password !== confirmPassword) {
-                errorMessage.textContent = t('err_passwords_no_match');
-                return;
-            }
-
-            // Get existing users
-            let users = [];
-            try {
-                const storedUsers = localStorage.getItem('bts_users');
-                if (storedUsers) {
-                    users = JSON.parse(storedUsers);
-                    if (!Array.isArray(users)) {
-                        users = [];
-                    }
-                }
-            } catch (e) {
-                users = [];
-            }
-
-            // Check if email exists
-            if (users.find(u => u.email === email)) {
-                errorMessage.textContent = t('err_email_taken');
-                return;
-            }
-
-            // Hash password
-            const salt = generateSalt();
-            const passwordHash = await hashPassword(password, salt);
-
-            // Create new user (no plain text password stored)
-            const newUser = {
-                id: generateId(),
-                displayName: displayName,
+            var salt = generateSalt();
+            var user = {
+                id: 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+                cloudId: null,
+                displayName: displayName.replace(/[<>]/g, ''),
                 email: email,
-                passwordHash: passwordHash,
                 salt: salt,
+                passwordHash: await hashPassword(password, salt),
                 deviceId: getDeviceId(),
                 createdAt: new Date().toISOString(),
-                settings: {
-                    wakeUpTime: '06:00',
-                    sleepTime: '22:00',
-                    schoolStart: '07:30',
-                    schoolEnd: '14:00',
-                    breakfastTime: '06:30',
-                    lunchTime: '14:30',
-                    dinnerTime: '20:00',
-                    exerciseTime: '16:00',
-                    showerTime: '21:00'
-                }
+                parentCode: ''
             };
+            users.push(user);
+            saveUsers(users);
+            mirrorFirebase(user, password, true);
+            startSession(user);
+        });
 
-            // Save user
-            users.push(newUser);
-            localStorage.setItem('bts_users', JSON.stringify(users));
-
-            // Auto login (session without sensitive fields)
-            const sessionUser = Object.assign({}, newUser);
-            delete sessionUser.salt;
-            delete sessionUser.passwordHash;
-            localStorage.setItem('currentUser', JSON.stringify(sessionUser));
-
-            // Firebase Auth sign up (background, non-blocking)
-            if (typeof firebase !== 'undefined' && firebase.auth) {
-                firebase.auth().createUserWithEmailAndPassword(email, password).then(function(cred) {
-                    return cred.user.updateProfile({ displayName: displayName });
-                }).then(function() {
-                    console.log('Firebase sign-up successful');
-                    // Save user profile to Firestore
-                    if (typeof FirebaseFirestore !== 'undefined') {
-                        FirebaseFirestore.saveUser(newUser.id, {
-                            id: newUser.id,
-                            displayName: displayName,
-                            email: email,
-                            parentCode: '',
-                            createdAt: newUser.createdAt,
-                            settings: newUser.settings
-                        });
-                    }
-                    if (typeof DataSync !== 'undefined') {
-                        DataSync.startAutoSync(newUser.id);
-                    }
-                    // Get FCM token
-                    if (typeof FCM !== 'undefined') {
-                        FCM.requestPermission();
-                    }
-                }).catch(function(err) {
-                    console.warn('Firebase sign-up failed (localStorage signup still works):', err.message);
-                });
-            }
-
-            // Redirect to dashboard
-            window.location.href = 'dashboard.html';
+        var pw = document.getElementById('password');
+        if (pw) pw.addEventListener('input', function () {
+            var fill = document.getElementById('strengthFill');
+            var txt = document.getElementById('strengthText');
+            if (!fill || !txt) return;
+            var v = pw.value, score = 0;
+            if (v.length >= 6) score++;
+            if (v.length >= 10) score++;
+            if (/[A-Z]/.test(v) && /[0-9]/.test(v)) score++;
+            if (/[^A-Za-z0-9]/.test(v)) score++;
+            var pct = [25, 40, 70, 100][score] || 10;
+            fill.style.width = pct + '%';
+            fill.style.background = score <= 1 ? 'var(--danger)' : score === 2 ? 'var(--warning)' : 'var(--success)';
+            txt.textContent = t('pw_strength') + (score <= 1 ? t('pw_weak') : score === 2 ? t('pw_medium') : t('pw_strong'));
         });
     }
 
-    // ========================================
-    // Password Strength Checker
-    // ========================================
-    window.checkPasswordStrength = function(password) {
-        const strengthFill = document.getElementById('strengthFill');
-        const strengthText = document.getElementById('strengthText');
-
-        if (!strengthFill || !strengthText) return;
-
-        let strength = 0;
-        let label = '';
-        let color = '';
-
-        if (password.length >= 6) strength++;
-        if (password.length >= 8) strength++;
-        if (/[A-Z]/.test(password)) strength++;
-        if (/[0-9]/.test(password)) strength++;
-        if (/[^A-Za-z0-9]/.test(password)) strength++;
-
-        switch (strength) {
-            case 0:
-            case 1:
-                label = t('pw_weak');
-                color = '#e17055';
-                break;
-            case 2:
-            case 3:
-                label = t('pw_medium');
-                color = '#fdcb6e';
-                break;
-            case 4:
-            case 5:
-                label = t('pw_strong');
-                color = '#00b894';
-                break;
-        }
-
-        strengthFill.style.width = (strength / 5 * 100) + '%';
-        strengthFill.style.background = color;
-        strengthText.textContent = password.length > 0 ? t('pw_strength') + label : '';
-        strengthText.style.color = color;
-    };
-
-    // ========================================
-    // Toggle Password Visibility
-    // ========================================
-    window.togglePassword = function(inputId, button) {
-        const input = document.getElementById(inputId);
-        const icon = button.querySelector('i');
-
-        if (input.type === 'password') {
-            input.type = 'text';
-            icon.classList.remove('fa-eye');
-            icon.classList.add('fa-eye-slash');
-        } else {
-            input.type = 'password';
-            icon.classList.remove('fa-eye-slash');
-            icon.classList.add('fa-eye');
-        }
-    };
-
-    // ========================================
-    // Utilities
-    // ========================================
-    function generateId() {
-        const array = new Uint8Array(16);
-        crypto.getRandomValues(array);
-        return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    function getDeviceId() {
-        let deviceId = localStorage.getItem('bts_device_id');
-        if (!deviceId) {
-            const array = new Uint8Array(16);
-            crypto.getRandomValues(array);
-            deviceId = 'dev_' + Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
-            localStorage.setItem('bts_device_id', deviceId);
-        }
-        return deviceId;
-    }
-
+    // Language toggle + init (shared by both pages)
+    var langBtn = document.getElementById('langToggle');
+    if (langBtn) langBtn.addEventListener('click', function () {
+        window.I18N.setLang(window.I18N.lang === 'ar' ? 'en' : 'ar');
+    });
+    window.I18N.init();
 })();
