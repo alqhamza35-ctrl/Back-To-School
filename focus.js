@@ -12,6 +12,43 @@
     var totalSeconds = 25 * 60;
     var roundsDone = 0;
 
+    var audioCtx = null;
+
+    // The beep is synthesised: the app ships no audio file, and a bare oscillator needs no asset.
+    function beep(times, baseFreq) {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        try {
+            if (!audioCtx) audioCtx = new Ctx();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            var start = audioCtx.currentTime + 0.02;
+            for (var i = 0; i < times; i++) {
+                var osc = audioCtx.createOscillator();
+                var gain = audioCtx.createGain();
+                var t0 = start + i * 0.3;
+                osc.type = 'sine';
+                osc.frequency.value = baseFreq + i * 110;
+                gain.gain.setValueAtTime(0.0001, t0);
+                gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.24);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(t0);
+                osc.stop(t0 + 0.26);
+            }
+        } catch (e) { /* a blocked audio context must never break the timer */ }
+    }
+
+    // Safari only lets a context started by a gesture make noise later; the Start click is that gesture.
+    function unlockAudio() {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        try {
+            if (!audioCtx) audioCtx = new Ctx();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        } catch (e) {}
+    }
+
     function modeSeconds(m) {
         var s = State.data.pomo.settings;
         return (m === 'work' ? s.work : m === 'short' ? s.short : s.long) * 60;
@@ -45,6 +82,7 @@
 
     function tick() {
         if (secondsLeft > 0) { secondsLeft--; paint(); return; }
+        var wasWork = mode === 'work';
         if (mode === 'work') {
             roundsDone++;
             var p = State.data.pomo;
@@ -68,6 +106,9 @@
         secondsLeft = totalSeconds;
         running = false;
         clearInterval(timerId); timerId = null;
+        // Work finishing and break finishing sound different, so the student knows which is next
+        // without looking at the screen.
+        beep(wasWork ? 3 : 2, wasWork ? 720 : 560);
         renderStats();
         paint();
     }
@@ -98,6 +139,7 @@
 
     window.Focus = {
         toggle: function () {
+            unlockAudio();
             if (running) {
                 running = false; clearInterval(timerId); timerId = null;
             } else {

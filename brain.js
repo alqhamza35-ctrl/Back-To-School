@@ -223,7 +223,11 @@
         return { text: text, actions: res && res.ok && res.action ? [res.action] : [] };
     }
     function failed(err) {
-        return { text: t('brain_failed') + ' ' + (err === 'ambiguous' ? t('brain_ambiguous') : t('brain_try')), actions: [] };
+        // An intent matched but the app refused it — the model may read the sentence differently.
+        return {
+            unhandled: true, hint: 'the local action was refused (' + err + ')',
+            text: t('brain_failed') + ' ' + (err === 'ambiguous' ? t('brain_ambiguous') : t('brain_try')), actions: []
+        };
     }
 
     // ---------- intents ----------
@@ -251,7 +255,9 @@
         if (asking()) return null;
         if (!any(N_HW) || !anyW(V_ADD)) return null;
         var body = stripWhen(cut(allWords(V_ADD, N_HW, ['للتسليم', 'تسليم', 'due', 'بأولويه', 'اولويه', 'priority', 'مهمه', 'مهم', 'عاجل', 'بسيط', 'سهل', 'high', 'low', 'medium'])));
-        var due = dateFrom() || shift(2);
+        // Never invent a due date: an unparsed «عشية الأربعاء» must reach the model, not become +2 days.
+        var due = dateFrom();
+        if (!due) return { unhandled: true, hint: 'the local parser found no due date in the sentence', text: t('brain_need_date'), actions: [] };
         var pr = priority();
         var got = pickSubject(body);
         var subject = got.subject || t('brain_general');
@@ -301,7 +307,7 @@
         if (!any(N_EXAM) || !anyW(V_ADD)) return null;
         var body = stripWhen(cut(allWords(V_ADD, N_EXAM, ['عند', 'في'])));
         var date = dateFrom();
-        if (!date) return { text: t('brain_need_date'), actions: [] };
+        if (!date) return { unhandled: true, hint: 'the local parser found no date in the sentence', text: t('brain_need_date'), actions: [] };
         var got = pickSubject(body);
         var name = got.subject || t('brain_general');
         var r = run('add_exam', { subject: name, date: date, time: timeFrom() || '08:00' });
@@ -336,7 +342,7 @@
     }
 
     function planDay() {
-        if (!has('رتب', 'رتب', 'نظم', 'خطط', 'جدول', 'plan', 'organize', 'schedule my day')) return null;
+        if (!has('رتب', 'رتب', 'نظم', 'تنظيم', 'خطط', 'جدول', 'plan', 'organize', 'schedule my day')) return null;
         if (!has('يومي', 'يومى', 'يوم', 'day', 'my day')) return null;
         var r = run('plan_day', {});
         if (!r.res.ok) return failed(r.res.error);
@@ -409,7 +415,7 @@
             else if ((any(N_CLASS) || any(N_EXAM)) && timeFrom()) { kind = 'class'; field = 'time'; }
             else if (any(N_CLASS) && weekdayFrom() > -1) { kind = 'class'; field = 'day'; }
             if (!field) {
-                if (any(N_HW) || any(N_CLASS) || any(N_EXAM) || any(N_PLAN)) return { text: t('brain_need_value'), actions: [] };
+                if (any(N_HW) || any(N_CLASS) || any(N_EXAM) || any(N_PLAN)) return { unhandled: true, hint: 'the local parser could not tell which field to change', text: t('brain_need_value'), actions: [] };
                 return null;
             }
         }
@@ -424,7 +430,7 @@
         else if (field === 'priority') val = priority();
         else if (field === 'day') val = weekdayFrom();
         else val = got.rest || body;
-        if (val === null || val === '' || val < 0) return { text: t('brain_need_value'), actions: [] };
+        if (val === null || val === '' || val < 0) return { unhandled: true, hint: 'the local parser found no new value to set', text: t('brain_need_value'), actions: [] };
         // For a text field the leftover words are the new value, not a search term.
         var isText = ['title', 'name', 'teacher', 'activity', 'subject'].indexOf(field) > -1;
         var r = run('update_item', { kind: kind, field: field, value: val, subject: got.subject, keyword: isText ? '' : got.rest });
@@ -613,6 +619,15 @@
     function bullets(list) { return list.map(function (x) { return '* ' + x; }).join('\n'); }
     function status() {
         var g = gam(), i, out;
+        // A create-request that survived every action intent belongs to the AI, not to a read-only answer.
+        // Strict verbs only: V_ADD holds «عندي» and «want», which also appear in plain questions.
+        var V_CREATE = ['اضف', 'ضيف', 'اكتب', 'سجل', 'حط', 'انش', 'اعمل', 'صمم', 'add', 'create', 'new', 'build'];
+        if (anyW(V_CREATE) && (any(N_HW) || any(N_CLASS) || any(N_EXAM) || any(N_QUIZ) || has('مكافاه', 'مكافآت', 'reward'))) return null;
+        // Every action intent already passed on this sentence. If it still reads as a command, the
+        // model must get it — answering «سوي لي مكافأة…» with «عندك 0 نقاط» is worse than asking.
+        if (!asking() && (anyW(V_SET) || anyW(V_DONE) || anyW(V_DEL) || hasW('ذكرني') || has('remind'))) return null;
+        // «تساعدني في الواجب» asks for a tutor, not for the list the app already shows on screen.
+        if (hasW('تساعد', 'تساعدني', 'مساعده', 'ساعد', 'اشرح', 'شرح', 'help', 'explain', 'solve', 'حل', 'نصيحه', 'نصائح', 'كيف اذاكر')) return null;
 
         if (has('مذاكره', 'المذاكره', 'study', 'sessions', 'جلسات') && (has('دقيق', 'minutes', 'كم') || has('اليوم'))) {
             var st = (State.data.pomo || {}).stats || {};
@@ -688,7 +703,11 @@
     }
 
     function fallback() {
-        return { text: t('brain_unknown') + '\n* ' + t('brain_h1') + '\n* ' + t('brain_h2') + '\n* ' + t('brain_h3') + '\n* ' + t('brain_h4') + '\n* ' + t('brain_h5'), actions: [] };
+        return {
+            unhandled: true,
+            text: t('brain_unknown') + '\n* ' + t('brain_h1') + '\n* ' + t('brain_h2') + '\n* ' + t('brain_h3') + '\n* ' + t('brain_h4') + '\n* ' + t('brain_h5'),
+            actions: []
+        };
     }
 
     // ---------- entry point ----------

@@ -130,6 +130,16 @@
     }
 
     // ---------- events ----------
+    // The robot buttons ask the assistant to rebuild the day. With no API (server off) the offline
+    // brain answers the same request through the same plan_day action, so the button always works.
+    function aiPlan() {
+        if (!window.Chat) { Planner.generate(); return; }
+        Dash.toast(t('ai_planning'));
+        Chat.ask(t('ai_plan'), function (res) {
+            if (res && res.actions && res.actions.length) Dash.toast(t('toast_saved'), 'success');
+        });
+    }
+
     function bindEvents() {
         document.querySelectorAll('.nav-item').forEach(function (n) {
             n.addEventListener('click', function (e) { e.preventDefault(); navigate(n.dataset.page); });
@@ -180,8 +190,8 @@
             b.addEventListener('click', function () { Planner.setHwFilter(b.dataset.filter); });
         });
         on('generateScheduleBtn', 'click', function () { Planner.generate(); });
-        on('aiPlanBtn', 'click', function () { Planner.generate(); });
-        on('aiPlanBtnHome', 'click', function () { Planner.generate(); });
+        on('aiPlanBtn', 'click', aiPlan);
+        on('aiPlanBtnHome', 'click', aiPlan);
         on('chatForm', 'submit', function (e) { Chat.send(e); });
         on('chatClearBtn', 'click', function () { Chat.clear(); });
         on('chatMicBtn', 'click', function () { Chat.mic(); });

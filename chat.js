@@ -1,10 +1,12 @@
-// Back to School — study assistant chat (offline brain.js) with real actions on the planner
-// History lives in State.data.chat; every mutation goes through the app's own modules.
+// Back to School — study assistant chat: Gemini (ai.js, proxied by server.js) answers the student,
+// and every action it requests runs through Chat.exec below. brain.js answers only when the API is
+// unreachable. History lives in State.data.chat; every mutation goes through the app's own modules.
 (function () {
     'use strict';
 
     var MAX_STORED = 60;
     var busy = false;
+    var onDone = null;
     var rec = null;
     var heard = '';
 
@@ -459,18 +461,30 @@
         return h ? h(args || {}) : bad('no such tool ' + name);
     }
 
-    function runTurn(text) {
+    function runTurn(text, done) {
         text = (text || '').trim();
         if (!text || busy) return;
+        onDone = done || null;
         push('user', text.slice(0, 800));
         State.save();
         busy = true;
         render();
 
-        // Small delay so the "thinking" bubble is visible; the reply never leaves the device.
+        // Small delay so the "thinking" bubble is visible before the reply appears.
         setTimeout(function () {
-            var res = window.Brain ? window.Brain.answer(text) : { text: t('chat_err'), actions: [] };
-            finish(res);
+            var local = function () {
+                return window.Brain ? window.Brain.answer(text) : { text: t('chat_err'), actions: [] };
+            };
+            if (!window.BtsAI) { finish(local()); return; }
+            // Gemini answers the student directly; every tool it calls still goes through Chat.exec,
+            // the same validated handlers brain.js uses, so no action bypasses the app.
+            window.BtsAI.run(text, exec).then(function (ai) {
+                if (ai && ai.ok && (ai.text || ai.actions.length)) {
+                    finish({ text: ai.text || ai.actions.join('\n'), actions: ai.actions });
+                } else {
+                    finish(local());
+                }
+            }).catch(function () { finish(local()); });
         }, 240);
     }
 
@@ -483,6 +497,9 @@
         if (res.text) { push('model', res.text.slice(0, 2000)); State.save(); speak(res.text.slice(0, 2000)); }
         busy = false;
         render();
+        var cb = onDone;
+        onDone = null;
+        if (cb) cb(res);
     }
 
     window.Chat = {

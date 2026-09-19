@@ -42,7 +42,7 @@
             schedule_title: 'الجدول اليومي', auto_generate: 'توليد تلقائي',
             generate_hint: 'يُنشأ الجدول من أوقاتك المدرجة في الإعدادات وموادك وواجباتك',
             add_item: 'إضافة بند',
-            ai_plan: 'تنظيم اليوم',
+            ai_plan: 'تنظيم اليوم', ai_planning: 'جاري تنظيم يومك…',
             // assistant chat
             nav_assistant: 'المساعد', assistant_title: 'المساعد الدراسي',
             chat_placeholder: 'اكتب سؤالك…', chat_send: 'إرسال', chat_clear: 'تفريغ المحادثة',
@@ -219,7 +219,7 @@
             schedule_title: 'Daily Schedule', auto_generate: 'Auto-generate',
             generate_hint: 'Built from your routine times, classes and pending homework',
             add_item: 'Add item',
-            ai_plan: 'Plan my day',
+            ai_plan: 'Plan my day', ai_planning: 'Planning your day…',
             nav_assistant: 'Assistant', assistant_title: 'Study Assistant',
             chat_placeholder: 'Ask something…', chat_send: 'Send', chat_clear: 'Clear chat',
             chat_empty: 'Tell it what you need: «add chemistry homework chapter 5 due Friday», «open my schedule», «plan my day»', chat_thinking: 'Thinking…',
