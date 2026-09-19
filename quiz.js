@@ -25,10 +25,12 @@
             window.Dash.toast(t('toast_saved'), 'success');
         },
         delete: function (id) {
-            if (!confirm(t('confirm_delete'))) return;
-            State.data.quizzes = State.data.quizzes.filter(function (q) { return q.id !== id; });
-            State.save(); this.render();
-            window.Dash.toast(t('toast_deleted'), 'info');
+            var self = this;
+            window.Dash.confirm(t('confirm_delete'), function () {
+                State.data.quizzes = State.data.quizzes.filter(function (q) { return q.id !== id; });
+                State.save(); self.render();
+                window.Dash.toast(t('toast_deleted'), 'info');
+            });
         },
         check: function (id, radioName) {
             var q = State.data.quizzes.find(function (x) { return x.id === id; });

@@ -34,9 +34,11 @@
             window.Dash.toast(t('toast_saved'), 'success');
         },
         deleteClass: function (id) {
-            if (!confirm(t('confirm_delete'))) return;
-            State.data.classes = State.data.classes.filter(function (c) { return c.id !== id; });
-            State.save(); this.renderClasses();
+            var self = this;
+            window.Dash.confirm(t('confirm_delete'), function () {
+                State.data.classes = State.data.classes.filter(function (c) { return c.id !== id; });
+                State.save(); self.renderClasses();
+            });
         },
         renderClasses: function () {
             var list = document.getElementById('classesList');
@@ -91,10 +93,12 @@
             this.renderHomework(); this.renderOverview();
         },
         deleteHomework: function (id) {
-            if (!confirm(t('confirm_delete'))) return;
-            State.data.homework = State.data.homework.filter(function (h) { return h.id !== id; });
-            State.save(); this.renderHomework(); this.renderOverview();
-            window.Dash.toast(t('toast_deleted'), 'info');
+            var self = this;
+            window.Dash.confirm(t('confirm_delete'), function () {
+                State.data.homework = State.data.homework.filter(function (h) { return h.id !== id; });
+                State.save(); self.renderHomework(); self.renderOverview();
+                window.Dash.toast(t('toast_deleted'), 'info');
+            });
         },
         renderHomework: function () {
             var list = document.getElementById('homeworkList');
@@ -140,9 +144,11 @@
             window.Dash.toast(t('toast_saved'), 'success');
         },
         deleteExam: function (id) {
-            if (!confirm(t('confirm_delete'))) return;
-            State.data.exams = State.data.exams.filter(function (x) { return x.id !== id; });
-            State.save(); this.renderExams(); this.renderOverview();
+            var self = this;
+            window.Dash.confirm(t('confirm_delete'), function () {
+                State.data.exams = State.data.exams.filter(function (x) { return x.id !== id; });
+                State.save(); self.renderExams(); self.renderOverview();
+            });
         },
         upcomingExams: function () {
             var today = todayStr();

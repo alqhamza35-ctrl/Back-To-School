@@ -7,11 +7,13 @@
             brand: 'لوحة الوالدين', home: 'الرئيسية', pvTitle: 'متابعة ابنك/ابنتك',
             pvDesc: 'أدخل رمز المتابعة الذي شاركه ابنك', connect: 'اتصال',
             err_code: 'رمز غير صحيح. تحقق وحاول مجدداً.', err_network: 'خطأ في الشبكة. حاول مجدداً.',
+            err_code_local: 'لم نجد هذا الرمز في هذا المتصفح. المزامنة السحابية متوقفة، لذا تعمل اللوحة فقط على جهاز الطالب.',
             ok_connect: 'تم الاتصال بنجاح!', disconnect: 'قطع الاتصال',
             doneHw: 'واجب منجز', pendingHw: 'واجب متبقٍ', studyMin: 'دقائق مذاكرة اليوم', points: 'النقاط',
             schTitle: 'جدول اليوم', exTitle: 'الامتحانات القادمة', hwTitle: 'الواجبات', rwTitle: 'المكافآت',
             rwLabel: 'المكافأة', rwCost: 'التكلفة (نقاط)', rwAdd: 'إضافة',
             empty: 'لا توجد بيانات بعد', updated: 'آخر تحديث:', ok_rw: 'تمت إضافة المكافأة',
+            err_rw_label: 'اكتب اسم المكافأة أولاً',
             approve: 'موافقة', reject: 'رفض', pending: 'بانتظار الموافقة', redeemed: 'تم الاستبدال',
             available: 'متاحة', ok_approved: 'تمت الموافقة!', ok_rejected: 'تم الرفض ورُدّت النقاط',
             no_schedule: 'لا جدول', no_exams: 'لا امتحانات قادمة', no_homework: 'لا واجبات',
@@ -21,11 +23,13 @@
             brand: 'Parent Dashboard', home: 'Home', pvTitle: 'Track your child',
             pvDesc: 'Enter the tracking code your child shared', connect: 'Connect',
             err_code: 'Invalid code. Check and try again.', err_network: 'Network error. Try again.',
+            err_code_local: 'No account with this code in this browser. Cloud sync is off, so the portal only works on the student\'s device.',
             ok_connect: 'Connected!', disconnect: 'Disconnect',
             doneHw: 'Homework done', pendingHw: 'Homework left', studyMin: 'Study minutes today', points: 'Points',
             schTitle: 'Today\'s schedule', exTitle: 'Upcoming exams', hwTitle: 'Homework', rwTitle: 'Rewards',
             rwLabel: 'Reward', rwCost: 'Cost (points)', rwAdd: 'Add',
             empty: 'No data yet', updated: 'Last updated:', ok_rw: 'Reward added',
+            err_rw_label: 'Type the reward name first',
             approve: 'Approve', reject: 'Reject', pending: 'Pending approval', redeemed: 'Redeemed',
             available: 'Available', ok_approved: 'Approved!', ok_rejected: 'Rejected, points refunded',
             no_schedule: 'No schedule', no_exams: 'No upcoming exams', no_homework: 'No homework',
@@ -34,6 +38,53 @@
     };
     var lang = localStorage.getItem('bts:v1:lang') || 'ar';
     var studentUid = null, poll = null, lastData = null;
+
+    // The portal also runs on this device without Firebase: the student's own localStorage is the source.
+    function localUsers() {
+        try { return JSON.parse(localStorage.getItem('bts:v1:users') || '[]'); } catch (e) { return []; }
+    }
+    function localDataKey(uid) { return 'bts:v1:data:' + uid; }
+    function getLocalData(uid) {
+        try { return JSON.parse(localStorage.getItem(localDataKey(uid)) || 'null'); } catch (e) { return null; }
+    }
+    // Parents type the code by hand, so "bts 645042" and "BTS-645042" must match.
+    function normCode(code) { return String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+    function findStudent(code) {
+        function fromLocal() {
+            var target = normCode(code);
+            if (!target) return null;
+            var u = localUsers().filter(function (x) {
+                if (x.isAdmin || !x.id) return false;
+                if (normCode(x.parentCode) === target) return true;
+                var d = getLocalData(x.id);
+                return !!(d && normCode(d.parentCode) === target);
+            })[0];
+            if (!u) return null;
+            var d2 = getLocalData(u.id) || {};
+            return { id: u.id, email: u.email, displayName: u.displayName || u.email, code: u.parentCode || d2.parentCode || code };
+        }
+        if (!window.BtsCloud || !BtsCloud.ready) return Promise.resolve(fromLocal());
+        return BtsCloud.findUserByParentCode(code).then(function (snap) {
+            if (snap && !snap.empty) {
+                var doc = snap.docs[0], p = doc.data();
+                return { id: doc.id, email: p.email, displayName: p.displayName, code: p.parentCode || code };
+            }
+            return fromLocal();
+        }).catch(function () { return fromLocal(); });
+    }
+    function getPlanner(uid) {
+        var raw = getLocalData(uid);
+        if (raw) return Promise.resolve(raw);
+        if (!window.BtsCloud || !BtsCloud.ready) return Promise.resolve({});
+        return BtsCloud.getPlanner(uid).then(function (d) { return d || {}; });
+    }
+    function savePlanner(uid, data) {
+        if (localStorage.getItem(localDataKey(uid))) {
+            localStorage.setItem(localDataKey(uid), JSON.stringify(data));
+            return Promise.resolve();
+        }
+        return BtsCloud.savePlanner(uid, data);
+    }
 
     function s(k) { return STR[lang][k]; }
     function esc(str) { var d = document.createElement('div'); d.appendChild(document.createTextNode(str == null ? '' : String(str))); return d.innerHTML; }
@@ -51,7 +102,7 @@
         var wrap = document.getElementById('toastContainer');
         var el = document.createElement('div');
         el.className = 'toast ' + (kind || 'success');
-        el.innerHTML = '<i class="fas fa-check-circle"></i><span></span>';
+        el.innerHTML = '<i class="fas ' + (kind === 'error' ? 'fa-exclamation-circle' : kind === 'info' ? 'fa-info-circle' : 'fa-check-circle') + '"></i><span></span>';
         el.querySelector('span').textContent = msg;
         wrap.appendChild(el);
         setTimeout(function () { el.remove(); }, 3000);
@@ -89,26 +140,29 @@
         if (!code) { errEl.textContent = s('err_code'); return; }
         document.getElementById('loadingSpinner').classList.add('show');
         document.getElementById('connectBtn').disabled = true;
-        BtsCloud.findUserByParentCode(code).then(function (snap) {
+        function stop() {
             document.getElementById('loadingSpinner').classList.remove('show');
             document.getElementById('connectBtn').disabled = false;
-            if (snap.empty) { errEl.textContent = s('err_code'); return; }
-            var doc = snap.docs[0];
-            studentUid = doc.id;
-            var profile = doc.data();
+        }
+        findStudent(code).then(function (profile) {
+            stop();
+            if (!profile) {
+                errEl.textContent = (window.BtsCloud && BtsCloud.ready) ? s('err_code') : s('err_code_local');
+                return;
+            }
+            studentUid = profile.id;
             document.getElementById('codeEntry').style.display = 'none';
             document.getElementById('parentDashboard').style.display = 'block';
             document.getElementById('studentName').textContent = profile.displayName || '—';
             document.getElementById('studentEmail').textContent = profile.email || '—';
             document.getElementById('studentAvatar').textContent = (profile.displayName || 'م').charAt(0);
-            document.getElementById('trackingCodeText').textContent = code;
+            document.getElementById('trackingCodeText').textContent = profile.code || code;
             toast(s('ok_connect'), 'success');
             load();
             poll = setInterval(load, 30000);
         }).catch(function (err) {
-            console.error(err);
-            document.getElementById('loadingSpinner').classList.remove('show');
-            document.getElementById('connectBtn').disabled = false;
+            stop();
+            console.warn('parent connect failed', err);
             errEl.textContent = s('err_network');
         });
     }
@@ -175,18 +229,18 @@
 
     function load() {
         if (!studentUid) return;
-        BtsCloud.getPlanner(studentUid).then(function (data) {
+        getPlanner(studentUid).then(function (data) {
             lastData = data || {};
             render(lastData);
         }).catch(function (err) { console.warn('load failed', err); });
     }
 
     function mutate(fn) {
-        return BtsCloud.getPlanner(studentUid).then(function (data) {
+        return getPlanner(studentUid).then(function (data) {
             data = data || {};
             fn(data);
             data.savedAt = Date.now();
-            return BtsCloud.savePlanner(studentUid, data).then(load);
+            return savePlanner(studentUid, data).then(load);
         });
     }
 
@@ -206,7 +260,7 @@
         e.preventDefault();
         var label = document.getElementById('rewardLabel').value.trim();
         var cost = Math.max(10, +document.getElementById('rewardCost').value || 0);
-        if (!label) return;
+        if (!label) { toast(s('err_rw_label'), 'error'); return; }
         mutate(function (data) {
             data.rewards = data.rewards || [];
             data.rewards.push({ id: 'rw-' + Date.now().toString(36), label: label, cost: cost, status: 'available' });
@@ -229,9 +283,5 @@
         if (studentUid) load();
     });
 
-    if (!BtsCloud.ready) {
-        document.getElementById('codeError').textContent = 'Firebase unavailable';
-        document.getElementById('connectBtn').disabled = true;
-    }
     applyStrings();
 })();

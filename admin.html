@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="no-referrer">
+    <title data-i18n="admin_brand">لوحة الإدارة</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="parent-page admin-page">
+    <header class="parent-topbar">
+        <a class="brand" href="index.html"><span class="brand-icon"><i class="fas fa-shield-halved"></i></span> <span data-i18n="admin_brand">لوحة الإدارة</span></a>
+        <div style="display:flex; gap:10px; align-items:center">
+            <button class="lang-toggle" id="langToggle"><i class="fas fa-globe"></i> <span id="langLabel">EN</span></button>
+            <button class="btn btn-ghost btn-sm" id="refreshBtn" data-i18n="refresh">تحديث</button>
+            <button class="btn btn-danger btn-sm" id="logoutBtn" data-i18n="logout">تسجيل الخروج</button>
+        </div>
+    </header>
+
+    <main class="parent-container admin-container">
+        <div class="page-head">
+            <h2 data-i18n="admin_brand">لوحة الإدارة</h2>
+            <p class="hint" data-i18n="admin_sub">جميع الحسابات المسجّلة على هذا الجهاز</p>
+        </div>
+
+        <div class="card admin-note">
+            <i class="fas fa-circle-info"></i>
+            <span data-i18n="admin_hint">تُعرض هنا الحسابات المحفوظة في هذا المتصفح. المزامنة السحابية غير مفعّلة حالياً.</span>
+        </div>
+
+        <div class="stats-grid">
+            <div class="card stat-card stat-completed"><div class="stat-icon"><i class="fas fa-users"></i></div><div><div class="stat-number" id="admTotal">0</div><div class="stat-label" data-i18n="admin_total">إجمالي الحسابات</div></div></div>
+            <div class="card stat-card stat-streak"><div class="stat-icon"><i class="fas fa-signal"></i></div><div><div class="stat-number" id="admActive">0</div><div class="stat-label" data-i18n="admin_active24">نشاط خلال ٢٤ ساعة</div></div></div>
+            <div class="card stat-card stat-exams"><div class="stat-icon"><i class="fas fa-coins"></i></div><div><div class="stat-number" id="admPoints">0</div><div class="stat-label" data-i18n="admin_points_sum">مجموع النقاط</div></div></div>
+            <div class="card stat-card stat-homework"><div class="stat-icon"><i class="fas fa-user-plus"></i></div><div><div class="stat-number" id="admNew">0</div><div class="stat-label" data-i18n="admin_new_week">حسابات جديدة هذا الأسبوع</div></div></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title"><i class="fas fa-user-plus"></i> <span data-i18n="admin_add_title">إضافة حساب جديد</span></div>
+            <form id="addForm" class="form-row" novalidate>
+                <div class="field"><label for="nfName" data-i18n="name">الاسم</label><input type="text" id="nfName" autocomplete="off"></div>
+                <div class="field"><label for="nfEmail" data-i18n="email">البريد الإلكتروني</label><input type="email" id="nfEmail" autocomplete="off"></div>
+                <div class="field"><label for="nfPw" data-i18n="password">كلمة المرور</label><input type="text" id="nfPw" autocomplete="new-password"></div>
+                <div class="field">
+                    <label for="nfRole" data-i18n="admin_type">النوع</label>
+                    <select id="nfRole">
+                        <option value="student" data-i18n="admin_student">طالب</option>
+                        <option value="admin" data-i18n="admin_role_adm">إدارة</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-accent" data-i18n="admin_add_btn">إنشاء الحساب</button>
+            </form>
+            <div class="pv-error" id="addErr"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-title"><i class="fas fa-list"></i> <span data-i18n="admin_accounts">الحسابات</span></div>
+            <div class="admin-toolbar">
+                <div class="field"><label for="adminSearch" data-i18n="admin_search_lbl">بحث</label><input type="text" id="adminSearch" autocomplete="off"></div>
+                <div class="field">
+                    <label for="adminSort" data-i18n="admin_sort">الترتيب</label>
+                    <select id="adminSort">
+                        <option value="recent" data-i18n="admin_sort_recent">الأحدث نشاطاً</option>
+                        <option value="points" data-i18n="admin_sort_points">الأكثر نقاطاً</option>
+                        <option value="newest" data-i18n="admin_sort_newest">الأحدث إنشاءً</option>
+                    </select>
+                </div>
+            </div>
+            <div id="adminList"></div>
+        </div>
+    </main>
+
+    <div class="modal-overlay" id="adminModal"><div class="modal modal-lg">
+        <h3 id="admTitle">—</h3>
+        <div id="admBody"></div>
+        <div class="modal-actions"><button type="button" class="btn btn-ghost" id="admClose" data-i18n="close">إغلاق</button></div>
+    </div></div>
+
+    <div class="modal-overlay" id="modalConfirm"><div class="modal">
+        <h3 data-i18n="admin_delete_account">حذف الحساب</h3>
+        <p class="hint" id="confirmMsg" data-i18n="admin_delete_q">سيُحذف الحساب وكل بياناته من هذا الجهاز. هل تريد المتابعة؟</p>
+        <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" id="confirmNo" data-i18n="cancel">إلغاء</button>
+            <button type="button" class="btn btn-danger" id="confirmYes" data-i18n="delete">حذف</button>
+        </div>
+    </div></div>
+
+    <div id="toastContainer"></div>
+
+    <script src="i18n.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>

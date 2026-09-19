@@ -1,17 +1,15 @@
-// Back to School — study assistant chat (Gemini) with real actions on the planner
+// Back to School — study assistant chat (offline brain.js) with real actions on the planner
 // History lives in State.data.chat; every mutation goes through the app's own modules.
 (function () {
     'use strict';
 
     var MAX_STORED = 60;
-    var MAX_SENT = 12;
     var busy = false;
     var rec = null;
     var heard = '';
 
     function t(k) { return window.I18N ? window.I18N.t(k) : k; }
-    function cfg() { return window.BtsAI || {}; }
-    function voiceLang() { return I18N.lang === 'ar' ? (cfg().arVoice || 'ar-SA') : (cfg().enVoice || 'en-US'); }
+    function voiceLang() { return I18N.lang === 'ar' ? 'ar-SA' : 'en-US'; }
     function msgs() {
         if (!Array.isArray(State.data.chat)) State.data.chat = [];
         return State.data.chat;
@@ -19,11 +17,42 @@
     function low(v) { return String(v == null ? '' : v).toLowerCase().trim(); }
     function isDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ''); }
     function isTime(s) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(s || ''); }
+    function yes(v) { return typeof v === 'string' && v.trim().length > 0; }
     function ok(action, extra) {
         return Object.assign({ ok: true, action: action }, extra || {});
     }
     function bad(error, extra) {
         return Object.assign({ ok: false, error: error }, extra || {});
+    }
+
+    // ---------- reply formatting (markdown-lite, always escaped first) ----------
+    function md(text) {
+        var src = window.Dash.esc(String(text == null ? '' : text)).replace(/\r/g, '');
+        src = src.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+        src = src.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+        var out = '', list = null;
+        function close() { if (list) { out += '</' + list + '>'; list = null; } }
+        src.split('\n').forEach(function (line) {
+            var s = line.trim();
+            var ul = /^[-*•]\s+(.+)$/.exec(s);
+            var ol = /^\d+[.)]\s+(.+)$/.exec(s);
+            var h = /^#{1,4}\s+(.+)$/.exec(s);
+            if (!s) { close(); return; }
+            if (h) { close(); out += '<p class="md-h">' + h[1] + '</p>'; return; }
+            if (ul) { if (list !== 'ul') { close(); out += '<ul>'; list = 'ul'; } out += '<li>' + ul[1] + '</li>'; return; }
+            if (ol) { if (list !== 'ol') { close(); out += '<ol>'; list = 'ol'; } out += '<li>' + ol[1] + '</li>'; return; }
+            close();
+            out += '<p>' + s + '</p>';
+        });
+        close();
+        return out;
+    }
+
+    function plain(text) {
+        return String(text == null ? '' : text)
+            .replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '')
+            .replace(/[*`#>_]/g, '')
+            .replace(/\s+/g, ' ').trim();
     }
 
     // ---------- item lookup, shared by finish/remove ----------
@@ -71,46 +100,7 @@
         return { spec: spec, hits: hits };
     }
 
-    // ---------- tools ----------
-    var TOOLS = [
-        { name: 'add_homework', description: 'Add a homework task', parameters: { type: 'OBJECT', properties: {
-            subject: { type: 'STRING' }, title: { type: 'STRING' },
-            due: { type: 'STRING', description: 'YYYY-MM-DD' },
-            priority: { type: 'STRING', enum: ['low', 'medium', 'high'] } }, required: ['subject', 'title', 'due'] } },
-        { name: 'finish_homework', description: 'Mark one pending homework as done', parameters: { type: 'OBJECT', properties: {
-            subject: { type: 'STRING' }, keyword: { type: 'STRING', description: 'part of the homework title' } }, required: ['subject'] } },
-        { name: 'add_class', description: 'Add a weekly class', parameters: { type: 'OBJECT', properties: {
-            name: { type: 'STRING' }, teacher: { type: 'STRING' },
-            day: { type: 'INTEGER', description: '0=Sunday .. 6=Saturday' }, time: { type: 'STRING', description: 'HH:MM' } },
-            required: ['name', 'day', 'time'] } },
-        { name: 'add_exam', description: 'Add an exam date', parameters: { type: 'OBJECT', properties: {
-            subject: { type: 'STRING' }, date: { type: 'STRING', description: 'YYYY-MM-DD' }, time: { type: 'STRING' } },
-            required: ['subject', 'date'] } },
-        { name: 'add_quiz', description: 'Add a multiple choice quiz question', parameters: { type: 'OBJECT', properties: {
-            subject: { type: 'STRING' }, question: { type: 'STRING' },
-            options: { type: 'ARRAY', items: { type: 'STRING' }, description: '2 to 4 options' },
-            correct: { type: 'INTEGER', description: 'index of the right option, starting at 0' } },
-            required: ['subject', 'question', 'options', 'correct'] } },
-        { name: 'add_plan_item', description: 'Add one item to today schedule', parameters: { type: 'OBJECT', properties: {
-            time: { type: 'STRING', description: 'HH:MM' }, activity: { type: 'STRING' } }, required: ['time', 'activity'] } },
-        { name: 'plan_day', description: 'Rebuild today schedule from routine, classes and pending homework' },
-        { name: 'remove_item', description: 'Delete one homework, class, exam, quiz or schedule item', parameters: { type: 'OBJECT', properties: {
-            kind: { type: 'STRING', enum: ['homework', 'class', 'exam', 'quiz', 'plan'] },
-            subject: { type: 'STRING' }, keyword: { type: 'STRING' } }, required: ['kind'] } },
-        { name: 'add_wish', description: 'Add a reward the student can redeem with points', parameters: { type: 'OBJECT', properties: {
-            label: { type: 'STRING' }, cost: { type: 'INTEGER' } }, required: ['label', 'cost'] } },
-        { name: 'set_timer', description: 'Change study timer lengths in minutes', parameters: { type: 'OBJECT', properties: {
-            work: { type: 'INTEGER' }, short: { type: 'INTEGER' }, long: { type: 'INTEGER' }, rounds: { type: 'INTEGER' } } } },
-        { name: 'start_timer', description: 'Open the study timer page and start a focus session' },
-        { name: 'open_page', description: 'Navigate the app to a page', parameters: { type: 'OBJECT', properties: {
-            page: { type: 'STRING', enum: ['overview', 'classes', 'homework', 'exams', 'quiz', 'schedule', 'calendar', 'focus', 'assistant', 'achievements', 'parent', 'settings'] } },
-            required: ['page'] } },
-        { name: 'set_language', description: 'Switch the app language', parameters: { type: 'OBJECT', properties: {
-            lang: { type: 'STRING', enum: ['ar', 'en'] } }, required: ['lang'] } },
-        { name: 'set_theme', description: 'Switch the app theme', parameters: { type: 'OBJECT', properties: {
-            theme: { type: 'STRING', enum: ['dark', 'light'] } }, required: ['theme'] } }
-    ];
-
+    // ---------- actions the assistant can perform ----------
     var PAGES = ['overview', 'classes', 'homework', 'exams', 'quiz', 'schedule', 'calendar', 'focus', 'assistant', 'achievements', 'parent', 'settings'];
 
     var HANDLERS = {
@@ -213,7 +203,86 @@
             document.documentElement.setAttribute('data-theme', a.theme);
             State.save();
             return ok(t('theme') + ' ✓ ' + t(a.theme));
-        }
+        },
+        complete_all_homework: function () {
+            var pending = State.data.homework.filter(function (h) { return !h.done; });
+            if (!pending.length) return bad('nothing pending');
+            // toggleHomework owns the points and re-render, so reuse it instead of duplicating.
+            pending.forEach(function (h) { Planner.toggleHomework(h.id); });
+            return ok(t('nav_homework') + ' ✓ ' + pending.length);
+        },
+        update_item: function (a) {
+            var f = find(a.kind, a.subject, a.keyword);
+            if (f.error) return bad(f.error);
+            if (!f.hits.length) return bad('nothing matches');
+            if (f.hits.length > 1) return bad('ambiguous', { matches: f.hits.map(f.spec.label) });
+            var x = f.hits[0], field = a.field, val = a.value, allowed = {
+                homework: { due: isDate, priority: function (v) { return ['low', 'medium', 'high'].indexOf(v) > -1; }, title: yes, subject: yes },
+                exam: { date: isDate, time: isTime, subject: yes },
+                class: { time: isTime, name: yes, teacher: yes, day: function (v) { return v >= 0 && v <= 6; } },
+                plan: { time: isTime, activity: yes }
+            };
+            var chk = (allowed[a.kind] || {})[field];
+            if (!chk) return bad('cannot change ' + field + ' on ' + a.kind);
+            if (!chk(val)) return bad('bad value for ' + field);
+            x[field] = field === 'day' ? +val : val;
+            if (a.kind === 'plan') State.data.schedule.sort(function (p, q) { return p.time.localeCompare(q.time); });
+            State.save();
+            window.Dash.rerenderAll();
+            return ok(f.spec.label(x) + ' → ' + field + ': ' + (field === 'day' ? I18N.dayName(x.day) : val));
+        },
+        toggle_plan_item: function (a) {
+            var f = find('plan', a.subject, a.keyword);
+            if (f.error) return bad(f.error);
+            if (!f.hits.length) return bad('nothing matches');
+            if (f.hits.length > 1) return bad('ambiguous', { matches: f.hits.map(f.spec.label) });
+            Planner.toggleItem(f.hits[0].id);
+            return ok(t('nav_schedule') + ' ✓ ' + f.spec.label(f.hits[0]));
+        },
+        clear_plan: function () {
+            if (!State.data.schedule.length) return bad('plan is empty');
+            var n = State.data.schedule.length;
+            State.data.schedule = [];
+            State.save();
+            window.Dash.rerenderAll();
+            return ok(t('nav_schedule') + ' ✕ ' + n);
+        },
+        redeem_reward: function (a) {
+            var k = low(a.label);
+            var hits = (State.data.rewards || []).filter(function (r) { return r.status === 'available' && (!k || low(r.label).indexOf(k) > -1); });
+            if (!hits.length) return bad('no available reward matches');
+            if (hits.length > 1) return bad('ambiguous', { matches: hits.map(function (r) { return r.label + ' (' + r.cost + ')'; }) });
+            var pts = State.data.gam.points;
+            if (pts < hits[0].cost) return bad('not enough points', { points: pts, cost: hits[0].cost });
+            Game.redeem(hits[0].id);
+            return ok(t('rewards') + ' ✓ ' + hits[0].label);
+        },
+        set_routine: function (a) {
+            var keys = ['wake', 'sleep', 'schoolStart', 'schoolEnd', 'breakfast', 'lunch', 'dinner', 'exercise', 'shower'];
+            var done = keys.filter(function (k) { return isTime(a[k]); });
+            if (!done.length) return bad('no valid HH:MM given');
+            done.forEach(function (k) { State.data.routine[k] = a[k]; });
+            State.save();
+            window.Dash.rerenderAll();
+            return ok(t('daily_routine') + ' ✓ ' + done.map(function (k) { return k + ' ' + a[k]; }).join(', '));
+        },
+        set_notification: function (a) {
+            if (['homework', 'exams', 'daily'].indexOf(a.kind) === -1) return bad('kind must be homework, exams or daily');
+            State.data.notif[a.kind] = a.on !== false;
+            State.save();
+            return ok(t('notifications') + ' ✓ ' + a.kind + (State.data.notif[a.kind] ? ' on' : ' off'));
+        },
+        set_filter: function (a) {
+            if (['all', 'pending', 'done'].indexOf(a.filter) === -1) return bad('filter must be all, pending or done');
+            window.Dash.go('homework');
+            Planner.setHwFilter(a.filter);
+            return ok(t('nav_homework') + ' → ' + t(a.filter === 'pending' ? 'pending' : a.filter === 'done' ? 'completed' : 'all'));
+        },
+        parent_code: function () {
+            window.Dash.parentCode();
+            return ok(t('parent_code') + ' ✓ ' + State.data.parentCode);
+        },
+        export_data: function () { window.Dash.exportJson(); return ok(t('export_data') + ' ✓'); }
     };
 
     // ---------- voice ----------
@@ -240,12 +309,17 @@
         });
     }
 
-    function speak(text) {
-        if (!('speechSynthesis' in window) || !State.data.chatSpeak || !text) return;
-        var u = new SpeechSynthesisUtterance(text);
+    function sayNow(text) {
+        if (!('speechSynthesis' in window)) { window.Dash.toast(t('chat_mic_err'), 'error'); return; }
+        var u = new SpeechSynthesisUtterance(plain(text));
         u.lang = voiceLang();
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(u);
+    }
+
+    function speak(text) {
+        if (!State.data.chatSpeak) return;
+        sayNow(text);
     }
 
     function recognizer() {
@@ -280,63 +354,96 @@
         return rec;
     }
 
-    // ---------- prompt ----------
-    function systemText() {
-        return [
-            'You are the study assistant inside a student planner app. You can act, not just talk.',
-            '- Use the tools whenever the student asks you to add, finish, delete or change something.',
-            '- Never claim you did something unless a tool returned ok:true. Report tool errors honestly.',
-            '- If a tool answers ambiguous with a matches list, ask the student which one.',
-            '- When you open a page for the student, stay there — never navigate back to the assistant page.',
-            '- Answers are often read aloud: keep them under 3 short sentences, no lists of more than 3 items.',
-            '- Today is ' + new Date().toISOString().slice(0, 10) + '. Convert words like tomorrow or Sunday into real dates before calling tools.',
-            '- Answer in the language the student writes in.',
-            '- Plain text only: no markdown, no ** or # or backticks.',
-            '- Student data:'
-        ].join('\n') + '\n' + AI.context();
-    }
-
-    function contents() {
-        return msgs().filter(function (m) { return m.role === 'user' || m.role === 'model'; })
-            .slice(-MAX_SENT)
-            .map(function (m) {
-                return { role: m.role === 'model' ? 'model' : 'user', parts: [{ text: m.text }] };
-            });
-    }
-
     function push(role, text) {
         var list = msgs();
         list.push({ id: State.uid(), role: role, text: text });
         if (list.length > MAX_STORED) list.splice(0, list.length - MAX_STORED);
     }
 
-    function bubble(m) {
-        var cls = m.role === 'model' ? 'bot' : m.role === 'action' ? 'act' : 'me';
-        return '<div class="msg ' + cls + '">' + window.Dash.esc(m.text) + '</div>';
+    function bubble(m, tools) {
+        var esc = window.Dash.esc;
+        if (m.role === 'action') {
+            return '<div class="msg act"><i class="fas fa-wand-magic-sparkles"></i> ' + esc(m.text) + '</div>';
+        }
+        if (m.role === 'model') {
+            return '<div class="turn"><div class="turn-ico"><i class="fas fa-wand-magic-sparkles"></i></div><div class="msg bot">' +
+                '<div class="msg-text">' + md(m.text) + '</div>' +
+                (tools ? '<div class="msg-tools">' +
+                    '<button type="button" class="mt" data-say="' + m.id + '" title="' + esc(t('chat_read_this')) + '"><i class="fas fa-volume-high"></i></button>' +
+                    '<button type="button" class="mt" data-copy="' + m.id + '" title="' + esc(t('chat_copy')) + '"><i class="fas fa-copy"></i></button>' +
+                '</div>' : '') +
+                '</div></div>';
+        }
+        return '<div class="msg me"><div class="msg-text">' + md(m.text) + '</div></div>';
+    }
+
+    function textOf(id) {
+        var hit = msgs().filter(function (m) { return m.id === id; })[0];
+        return hit ? hit.text : '';
+    }
+
+    function copyText(txt) {
+        var done = function () { window.Dash.toast(t('chat_copied'), 'info'); };
+        var fail = function () { window.Dash.toast(t('chat_copy_err'), 'error'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(plain(txt)).then(done, fail);
+            return;
+        }
+        var ta = document.createElement('textarea');
+        ta.value = plain(txt);
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { fail(); }
+        ta.remove();
+    }
+
+    function bindTools(scope) {
+        scope.querySelectorAll('[data-say]').forEach(function (b) {
+            b.addEventListener('click', function () { sayNow(textOf(b.dataset.say)); });
+        });
+        scope.querySelectorAll('[data-copy]').forEach(function (b) {
+            b.addEventListener('click', function () { copyText(textOf(b.dataset.copy)); });
+        });
+    }
+
+    function renderSugs(list) {
+        var box = document.getElementById('chatSugs');
+        if (!box) return;
+        if (list.length >= 2) { box.innerHTML = ''; box.style.display = 'none'; return; }
+        var keys = ['chat_sug1', 'chat_sug2', 'chat_sug3', 'chat_sug4'];
+        box.style.display = '';
+        box.innerHTML = keys.map(function (k) {
+            return '<button type="button" class="sug" data-sug="' + window.Dash.esc(t(k)) + '">' + window.Dash.esc(t(k)) + '</button>';
+        }).join('');
+        box.querySelectorAll('[data-sug]').forEach(function (b) {
+            b.addEventListener('click', function () { runTurn(b.dataset.sug); });
+        });
     }
 
     function render() {
         var list = msgs();
         var box = document.getElementById('chatThread');
         if (box) {
-            var html = list.map(bubble).join('');
-            if (heard) html += '<div class="msg me">' + window.Dash.esc(heard) + '</div>';
-            if (busy) html += '<div class="msg bot thinking">' + window.Dash.esc(t('chat_thinking')) + '</div>';
+            var html = list.map(function (m) { return bubble(m, m.role === 'model'); }).join('');
+            if (heard) html += '<div class="msg me"><div class="msg-text">' + window.Dash.esc(heard) + '</div></div>';
+            if (busy) html += '<div class="turn"><div class="turn-ico"><i class="fas fa-wand-magic-sparkles"></i></div><div class="msg bot"><div class="msg-text"><p class="thinking">' + window.Dash.esc(t('chat_thinking')) + '</p></div></div></div>';
             if (!list.length && !busy && !heard) {
                 html = '<div class="empty-state"><i class="fas fa-robot"></i>' + window.Dash.esc(t('chat_empty')) + '</div>';
             }
             box.innerHTML = html;
+            bindTools(box);
             box.scrollTop = box.scrollHeight;
         }
         var log = document.getElementById('voiceLog');
         if (log) {
-            var tail = list.slice(-3).map(bubble).join('');
-            if (!tail && !heard) tail = '<div class="msg bot">' + window.Dash.esc(t('chat_voice_hint')) + '</div>';
-            log.innerHTML = (heard ? '<div class="msg me">' + window.Dash.esc(heard) + '</div>' : '')
+            var tail = list.slice(-3).map(function (m) { return bubble(m); }).join('');
+            if (!tail && !heard) tail = '<div class="msg bot"><div class="msg-text">' + window.Dash.esc(t('chat_voice_hint')) + '</div></div>';
+            log.innerHTML = (heard ? '<div class="msg me"><div class="msg-text">' + window.Dash.esc(heard) + '</div></div>' : '')
                 + tail
-                + (busy ? '<div class="msg bot thinking">' + window.Dash.esc(t('chat_thinking')) + '</div>' : '');
+                + (busy ? '<div class="msg bot"><div class="msg-text"><p class="thinking">' + window.Dash.esc(t('chat_thinking')) + '</p></div></div>' : '');
             log.scrollTop = log.scrollHeight;
         }
+        renderSugs(list);
         var send = document.getElementById('chatSendBtn');
         if (send) send.disabled = busy;
         paintSpeak();
@@ -347,37 +454,40 @@
         });
     }
 
+    function exec(name, args) {
+        var h = HANDLERS[name];
+        return h ? h(args || {}) : bad('no such tool ' + name);
+    }
+
     function runTurn(text) {
         text = (text || '').trim();
         if (!text || busy) return;
-        if (!window.AI.ready()) { window.Dash.toast(t('ai_no_key'), 'error'); return; }
         push('user', text.slice(0, 800));
         State.save();
         busy = true;
         render();
 
-        AI.turn(systemText(), contents(), TOOLS, function (name, args) {
-            var h = HANDLERS[name];
-            return h ? h(args) : bad('no such tool ' + name);
-        }).then(function (res) {
-            if (res.actions.length) {
-                push('action', res.actions.join('  •  '));
-                State.save();
-                window.Dash.rerenderAll();
-            }
-            if (res.text) { push('model', res.text.slice(0, 2000)); State.save(); speak(res.text.slice(0, 2000)); }
-        }).catch(function (err) {
-            var why = window.AI.isKeyError(err) ? t('ai_key_bad') : t('chat_err') + ' (' + (err && err.message ? err.message : '?') + ')';
-            window.Dash.toast(why, 'error');
-        }).then(function () {
-            busy = false;
-            render();
-        });
+        // Small delay so the "thinking" bubble is visible; the reply never leaves the device.
+        setTimeout(function () {
+            var res = window.Brain ? window.Brain.answer(text) : { text: t('chat_err'), actions: [] };
+            finish(res);
+        }, 240);
+    }
+
+    function finish(res) {
+        if (res.actions && res.actions.length) {
+            push('action', res.actions.join('  •  '));
+            State.save();
+            window.Dash.rerenderAll();
+        }
+        if (res.text) { push('model', res.text.slice(0, 2000)); State.save(); speak(res.text.slice(0, 2000)); }
+        busy = false;
+        render();
     }
 
     window.Chat = {
         render: render,
-        tools: TOOLS,
+        exec: exec,
         ask: runTurn,
 
         mic: function () {

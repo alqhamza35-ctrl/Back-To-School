@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
     <meta name="referrer" content="no-referrer">
     <title data-i18n="signup_title">حساب جديد</title>
     <link rel="stylesheet" href="styles.css">
@@ -33,21 +32,21 @@
             <form id="signupForm" novalidate>
                 <div class="field">
                     <label for="displayName" data-i18n="display_name">الاسم الكامل</label>
-                    <input type="text" id="displayName" autocomplete="name" required>
+                    <input type="text" id="displayName" autocomplete="name">
                 </div>
                 <div class="field">
                     <label for="email" data-i18n="email">البريد الإلكتروني</label>
-                    <input type="email" id="email" autocomplete="email" placeholder="name@example.com" required>
+                    <input type="email" id="email" autocomplete="email" placeholder="name@example.com">
                 </div>
                 <div class="field">
                     <label for="password" data-i18n="password">كلمة المرور</label>
-                    <input type="password" id="password" autocomplete="new-password" required>
+                    <input type="password" id="password" autocomplete="new-password">
                     <div class="pw-strength"><span id="strengthFill" style="width:0"></span></div>
                     <div class="pw-strength-text" id="strengthText"></div>
                 </div>
                 <div class="field">
                     <label for="confirmPassword" data-i18n="confirm_password">تأكيد كلمة المرور</label>
-                    <input type="password" id="confirmPassword" autocomplete="new-password" required>
+                    <input type="password" id="confirmPassword" autocomplete="new-password">
                 </div>
                 <button type="submit" class="btn btn-primary btn-block"><i class="fas fa-user-plus"></i> <span data-i18n="signup_submit">إنشاء الحساب</span></button>
             </form>

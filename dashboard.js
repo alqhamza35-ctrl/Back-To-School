@@ -13,6 +13,14 @@
         document.documentElement.setAttribute('data-theme', State.data.theme || 'dark');
         I18N.apply();
 
+        // The parent portal accepts the code from either copy, so keep both in step.
+        if (State.data.parentCode && State.user.parentCode !== State.data.parentCode) {
+            syncParentCode(State.data.parentCode);
+        } else if (State.user.parentCode && !State.data.parentCode) {
+            State.data.parentCode = State.user.parentCode;
+            State.save();
+        }
+
         var nameEl = document.getElementById('userName');
         if (nameEl) nameEl.textContent = State.user.displayName;
         var mailEl = document.getElementById('userEmail');
@@ -65,6 +73,23 @@
             setTimeout(function () { el.remove(); }, 3200);
         },
 
+        // In-app replacement for window.confirm() — the browser's own dialog is off limits.
+        confirm: function (msg, onYes) {
+            var overlay = document.getElementById('modalConfirm');
+            if (!overlay) { onYes(); return; }
+            var box = document.getElementById('confirmMsg');
+            if (box) box.textContent = msg || t('confirm_delete');
+            var yes = document.getElementById('confirmYes'), no = document.getElementById('confirmNo');
+            var close = function () {
+                overlay.classList.remove('active');
+                yes.onclick = no.onclick = overlay.onclick = null;
+            };
+            yes.onclick = function () { close(); onYes(); };
+            no.onclick = close;
+            overlay.onclick = function (e) { if (e.target === overlay) close(); };
+            overlay.classList.add('active');
+        },
+
         notify: function (title, body) {
             if (!('Notification' in window) || Notification.permission !== 'granted') return;
             try { new Notification(title, { body: body }); } catch (e) { /* ignore */ }
@@ -75,7 +100,14 @@
         rerenderAll: function () {
             I18N.apply();
             Planner.renderAll(); Quiz.render(); Game.render(); Focus.render(); Chat.render(); renderParentPage(); fillRoutineForm();
-        }
+        },
+
+        // Reached from the assistant's actions (chat.js) — never re-roll a code the parents already hold.
+        parentCode: function () {
+            if (!State.data.parentCode) generateParentCode();
+            window.Dash.go('parent');
+        },
+        exportJson: function () { exportData(); }
     };
 
     // ---------- routing ----------
@@ -148,8 +180,8 @@
             b.addEventListener('click', function () { Planner.setHwFilter(b.dataset.filter); });
         });
         on('generateScheduleBtn', 'click', function () { Planner.generate(); });
-        on('aiPlanBtn', 'click', function (e) { AI.plan(e.currentTarget); });
-        on('aiPlanBtnHome', 'click', function (e) { AI.plan(e.currentTarget); });
+        on('aiPlanBtn', 'click', function () { Planner.generate(); });
+        on('aiPlanBtnHome', 'click', function () { Planner.generate(); });
         on('chatForm', 'submit', function (e) { Chat.send(e); });
         on('chatClearBtn', 'click', function () { Chat.clear(); });
         on('chatMicBtn', 'click', function () { Chat.mic(); });
@@ -279,11 +311,14 @@
     function showPwError(msg, err) { err.textContent = msg; err.classList.add('show'); }
 
     // ---------- parent zone ----------
-    function generateParentCode() {
-        State.data.parentCode = 'BTS-' + Math.floor(100000 + Math.random() * 900000);
+    function syncParentCode(code) {
         var users = State.users();
         var idx = users.findIndex(function (u) { return u.id === State.user.id; });
-        if (idx !== -1) { users[idx].parentCode = State.data.parentCode; State.saveUsers(users); }
+        if (idx !== -1) { users[idx].parentCode = code; State.user.parentCode = code; State.saveUsers(users); }
+    }
+    function generateParentCode() {
+        State.data.parentCode = 'BTS-' + Math.floor(100000 + Math.random() * 900000);
+        syncParentCode(State.data.parentCode);
         State.save();
         renderParentPage();
         Store.push();

@@ -11,6 +11,11 @@
     var MAX_ATTEMPTS = 5;
     var LOCKOUT_MS = 5 * 60 * 1000;
 
+    // Built-in administrator: created on first login with this password, then stored
+    // like every other account (salted SHA-256) so the plaintext lives only here.
+    var ADMIN_EMAIL = 'admin@gmail.com';
+    var ADMIN_PASSWORD = '20141982';
+
     function t(key) { return window.I18N ? window.I18N.t(key) : key; }
 
     function getUsers() {
@@ -70,7 +75,7 @@
 
     function startSession(user) {
         localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id }));
-        window.location.href = 'dashboard.html';
+        window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html';
     }
 
     // Mirror credentials to Firebase without blocking the local flow.
@@ -98,10 +103,35 @@
         }
     }
 
+    async function seedAdmin(password) {
+        var users = getUsers();
+        var existing = users.find(function (u) { return u.email === ADMIN_EMAIL; });
+        if (existing) return existing;
+        var salt = generateSalt();
+        var admin = {
+            id: 'u-admin-' + Date.now().toString(36),
+            cloudId: null,
+            displayName: t('admin_display_name'),
+            email: ADMIN_EMAIL,
+            salt: salt,
+            passwordHash: await hashPassword(password, salt),
+            deviceId: getDeviceId(),
+            createdAt: new Date().toISOString(),
+            parentCode: '',
+            isAdmin: true
+        };
+        users.push(admin);
+        saveUsers(users);
+        return admin;
+    }
+
     // Already signed in?
     if (localStorage.getItem(SESSION_KEY)) {
-        window.location.href = 'dashboard.html';
-        return;
+        var sess;
+        try { sess = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (e) { sess = null; }
+        var signed = sess && getUsers().find(function (u) { return u.id === sess.userId; });
+        if (signed) { window.location.href = signed.isAdmin ? 'admin.html' : 'dashboard.html'; return; }
+        localStorage.removeItem(SESSION_KEY);
     }
 
     // ---------- Login ----------
@@ -117,6 +147,16 @@
 
             var users = getUsers();
             var user = users.find(function (u) { return u.email === email; });
+            if (!user && email === ADMIN_EMAIL) {
+                if (password !== ADMIN_PASSWORD) {
+                    recordAttempt(email, false);
+                    return showError(t('err_wrong_credentials'));
+                }
+                user = await seedAdmin(password);
+                recordAttempt(email, true);
+                startSession(user);
+                return;
+            }
             var ok = false;
             if (user) {
                 var hash = await hashPassword(password, user.salt);
@@ -187,6 +227,7 @@
             if (password !== confirm) return showError(t('err_pw_match'));
 
             var users = getUsers();
+            if (email === ADMIN_EMAIL) return showError(t('err_email_taken'));
             if (users.find(function (u) { return u.email === email; })) return showError(t('err_email_taken'));
 
             var salt = generateSalt();
